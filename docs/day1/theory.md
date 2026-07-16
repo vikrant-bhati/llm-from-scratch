@@ -76,7 +76,26 @@ $$H = \tfrac{1}{2}(1) + \tfrac{1}{4}(2) + \tfrac{1}{8}(3) + \tfrac{1}{8}(3) = 1.
 
 Sun is a cheap 1-bit event that happens half the time; hail is an expensive 3-bit surprise but rare — entropy is the average bill. Compare: if all four outcomes were equally likely, $H = \log_2 4 = 2$ bits, the maximum possible. Skewing the distribution toward predictable outcomes dropped the entropy from 2 to 1.75 **with the exact same set of outcomes**. Same effect on a biased coin: fair coin $H = 1$ bit, but a 90/10 coin gives $H = 0.9\log_2\frac{1}{0.9} + 0.1\log_2\frac{1}{0.1} \approx 0.47$ bits — still two outcomes, half the uncertainty.
 
-That's what Shannon's ~1 bit/letter for English means: out of a possible 4.75 bits, the rules and habits of English eliminate ~80% of the uncertainty before you even see the next letter. (A useful physical reading of a "bit": one bit = one perfect yes/no question. Entropy is **the average number of yes/no questions you'd need to guess the source's next symbol**. Gibberish needs ~4.75 questions per letter; English needs ~1, because context — `q` is on the screen, or "the cat sat on the ma" — has already pre-answered most of them.)
+**What entropy really means: the guessing game.** The formula becomes concrete once you know what a "bit" physically is: **one bit = the answer to one perfect yes/no question.** So entropy is simply **the average number of yes/no questions you need to guess the source's next symbol.** That's the whole meaning. Three steps ground Shannon's "~1 bit per letter of English" claim:
+
+**Step 1 — where 4.75 comes from.** Imagine letters produced by a lottery machine: 26 letters plus space, all equally likely, no memory of what came before. To identify the next symbol, your best strategy is to halve the candidates with every question: "Is it in A–M?" → "Is it in A–F?" → ... With 27 possibilities that takes $\log_2 27 \approx 4.75$ questions. So **4.75 bits/letter is the uncertainty of pure gibberish** — the worst case, where nothing helps you guess.
+
+**Step 2 — but English is not a lottery machine.** Play the same game on real text. You're reading:
+
+> The cat sat on the ma\_
+
+How many questions do you need? Essentially zero — "Is it *t*?" → yes, done. Or:
+
+> q\_
+
+One question: "Is it *u*?" → yes, ~97% of the time. Meanwhile a genuinely open position — the first letter of a brand-new sentence — might cost 3–4 questions. Entropy is the **average over all positions**, and for English that average lands around **1 question per letter**, not 4.75.
+
+**Step 3 — so "eliminates ~80% of the uncertainty" means:** before the next letter arrives there are notionally 27 candidates — 4.75 questions' worth of doubt. But spelling rules, grammar, and word habits have already killed most candidates *for free*: after `q` almost nothing survives; after "the ma" in that sentence, everything but *t*, *n*, *p* is dead. Context did the questioning for you. Of the 4.75 questions gibberish would require, context pre-answers ~3.75, leaving you ~1 to actually ask — and $3.75/4.75 \approx 80\%$.
+
+**Why this matters beyond the history lesson:**
+
+- **Redundancy is why compression works.** English needs ~1 bit/letter but ASCII spends 8 — that gap is exactly why ZIP shrinks text about 5×. It's also why "u cn stll rd ths": the deleted letters carried almost no information, so context reconstructs them.
+- **Redundancy is why language models are possible at all.** A language model is a machine for exploiting this predictability. If English really were 4.75 bits/letter — a lottery machine — next-word prediction would be impossible and this entire roadmap wouldn't exist. Entropy ≈ 1 bit/letter is the *quantitative proof* that "predict the next symbol" is a learnable task.
 
 **How ~1 bit/letter was actually measured: the staircase of estimates.** Nobody knows the true probability distribution of English, so its entropy can't be computed directly. Shannon's move: compute the entropy of the next letter conditioned on **increasing amounts of context**. Each extra scrap of context can only reduce uncertainty, so the estimates form a descending staircase whose limit is the true entropy:
 
