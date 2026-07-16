@@ -305,7 +305,21 @@ Viterbi is just our brute-force table with pruning: at each step, for each state
 
 **One idea to file away.** The heart of the HMM is *a hidden state that summarizes the past and gets carried forward one step at a time*. Replace the hand-built probability tables with a learned vector, and you have invented the RNN — which we meet on Day 7. The future was hiding inside 1980s speech recognition.
 
-## 7. Building the n-gram model: the actual math
+### 6.3 Perplexity: how do you grade a language model?
+
+Jelinek's team had a practical problem: they kept building competing language models, and they needed **one number** to say which was better — without running an entire expensive speech recognizer every time. The number they invented (in 1977) is called **perplexity**, and it is still the standard scorecard for every language model today, GPT included.
+
+**What are we actually trying to measure?** A language model's whole job is to give high probability to text that people actually write. So the test is natural: take real text the model has **never seen before**, walk through it word by word, and check — *how likely did the model think each actual next word was?* A good model keeps saying "yes, I expected that" (high probabilities). A bad model keeps being surprised (low probabilities).
+
+**The definition, in plain words:**
+
+> **Perplexity measures how confused the model is while reading real text. A perplexity of K means: at each word, the model was as unsure as if it were choosing blindly among K equally likely words.**
+
+- Perplexity 4 → reading felt like picking from 4 options per word. Pretty confident.
+- Perplexity 100 → like rolling a 100-sided die at every word. Very confused.
+- Perplexity 1 → a perfect oracle that always knows the next word. **Lower is better.**
+
+The name is literal: it measures how *perplexed* the model is. Confidence (when it's justified by being right) scores well; confusion scores badly. In the next section we'll build a model from scratch and end by computing its perplexity — including the exact formula, which turns out to be nothing more than the guessing-game score (average surprise per word) converted back into a count of options.
 
 Everything above now becomes one buildable machine. The plan, in one paragraph: we want the probability of a whole sentence (7.1) — computing it exactly needs statistics nobody can collect, so we take a shortcut (7.2) — the shortcut makes training literally just counting (7.3) — counting has one fatal flaw (7.4) — we patch it, then grade the model with perplexity (7.5).
 
@@ -386,9 +400,7 @@ One sentence worth underlining: **smoothing is generalization** — the model's 
 
 ### 7.5 Step five: perplexity, the scorecard
 
-The model is trained and patched. Now: **is it any good?** In one phrase, perplexity measures **how confused the model is** when reading real text it has never seen. Confident model → low perplexity. Confused model → high perplexity. **Lower is better.**
-
-Here is how it's computed. First, walk the model through test text and measure its average surprise per word — for each word, ask "how likely did you think that was?", convert to surprise, average. (This is the cross-entropy from earlier — the guessing game score, in bits per word):
+The model is trained and patched. Time for the grade we promised when we met Jelinek's team: **perplexity — how confused is the model when reading text it has never seen?** We know what the number *means* (choosing among K equally likely words; lower is better). Now let's see how it's actually computed. First, walk the model through test text and measure its average surprise per word — for each word, ask "how likely did you think that was?", convert to surprise, average. (This is the cross-entropy from earlier — the guessing game score, in bits per word):
 
 $$H = -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{previous words})$$
 
