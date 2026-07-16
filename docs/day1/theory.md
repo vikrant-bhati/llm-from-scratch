@@ -4,51 +4,51 @@
 
 ## 1. Why this topic matters
 
-Today's LLMs converse, reason, write code, and act as autonomous agents. But if we strip away the scale then every one of them is still answering the question this field started with:
+Today's LLMs like ChatGPT can chat, reason, and write code. But under all of that, every one of them is still answering one simple question:
 
-> **Given the words so far, what word comes next — and with what probability?**
+> **Given the words so far, what word comes next — and how likely is it?**
 
-That question was posed mathematically in 1948, decades before neural networks were practical. Understanding the original statistical formulation matters for three reasons:
+That question was first written down as math in 1948, long before neural networks were practical. It is worth learning the original version, for three reasons:
 
-1. **The objective never changed.** Current LLMs like GPT are trained to minimize **cross-entropy** (explained below) of next-token prediction — the exact quantity Shannon defined. An n-gram model and GPT-4 optimize the same loss; they differ in how they represent context.
-2. **The evaluation never changed.** **Perplexity** (defined below) is still reported for every foundation model release.
-3. **The failure modes of simple models explain the design of complex ones.** Every limitation of n-grams (sparsity, no generalization, fixed context) directly motivates a later invention (embeddings, neural LMs, attention). Day 1 is the "why" for the rest of this roadmap.
+1. **The goal never changed.** GPT is trained the same way the old models were: it predicts the next word, and it gets punished based on how surprised it was by the true next word. Shannon invented that measure of surprise in 1948. We will meet it in this article under the name **cross-entropy**.
+2. **The test never changed.** Every new model today still reports a score called **perplexity** — a number that says how confused the model is when reading real text. It was invented in this era too. We will build up to it step by step.
+3. **The failures of the old models explain the new ones.** Every weakness of the simple models in this article led directly to a later invention (embeddings, RNNs, attention). Day 1 is the "why" behind the whole roadmap.
 
-## 2. Historical context: the rationalism vs. empiricism war
+## 2. Before statistics: the rule era, and why it failed
 
-For roughly 1960–1990, mainstream NLP was **rationalist** which means that language is governed by rules, so encode grammar and linguistic theory by hand (parsers, expert systems, Chomsky's influence). But this produced a brittle systems:
+From roughly 1960 to 1990, the main idea in NLP was: **language follows rules, so let's write the rules into the computer by hand.** Grammar rules, dictionaries, expert systems. This is called the **rationalist** approach.
 
-- **Coverage:** real text is endlessly messy — headlines, typos, idioms, novel words. Hand-written rules never covered enough of it.
-- **Ambiguity:** rules could enumerate the possible readings of a sentence but had no principled way to say which reading is _likely_. ("I saw the man with the telescope". It doesn't say who has the telescope i.e. either I used a telescope to see the man, or you saw a man who had a telescope with him).
-- **Cost:** every domain and language needed expert linguists writing new rules, and rule sets interacted unpredictably as they grew.
+It failed for three practical reasons:
 
-But then this shifted. The **empiricist** alternative — that we can estimate how language behaves from _counts over real usage_ — had existed since Shannon, but needed two things that arrived in the 1980s: large machine-readable corpora and cheap computation. Speech recognition at IBM (Jelinek's group) proved the approach worked, and by the early 1990s the field had flipped. Frederick Jelinek's (possibly apocryphal, definitely accurate) quip captures the whole war in one line:
+- **Coverage.** Real text is messy — typos, slang, headlines, new words. No rulebook could ever cover it all.
+- **Ambiguity.** Rules can list all the possible meanings of a sentence, but they cannot say which meaning is *likely*. Take *"I saw the man with the telescope."* Grammar allows two readings: I used a telescope to see the man, or the man was holding a telescope. Both are correct English. A rulebook has no way to pick one. To pick, you need to know which reading is more *common* in real life — and that is a fact about data, not grammar.
+- **Cost.** Every new language and every new domain needed experts writing new rules, and big rulebooks broke in surprising ways as they grew.
 
-> _"Every time I fire a linguist, the performance of the speech recognizer goes up."_
+The opposite idea is called the **empiricist** approach: don't write rules — **count how real people actually use language, and turn the counts into probabilities.** This idea existed since the 1940s, but it needed two things that only arrived in the 1980s: lots of text in digital form, and cheap computers. When IBM's speech recognition group (led by Frederick Jelinek) showed that counting beats rule-writing, the whole field switched sides. Jelinek's famous joke sums up the war:
 
-The lesson was not "linguistics is useless" — it was that **probability estimated from data beats hand-written certainty** whenever language gets ambiguous, which is always.
+> *"Every time I fire a linguist, the performance of the speech recognizer goes up."*
 
-## 3. Core intuition: language is a predictable sequence
+The lesson was not "grammar is useless." The lesson was: **when language is ambiguous — which is always — probabilities learned from data beat rules written by hand.**
 
-Before any math: language is redundant and predictable. If you see the letter `t` in English text, `h` is a very likely next letter. If you read "The cat sat on the \_\_\_", your brain has already ranked the candidates (`mat`, `floor`, `sofa`...) and ruled out others (`the`, `photosynthesis`).
+## 3. What is a language model?
 
-A **language model (LM)** is just this ability, made explicit:
+Language is predictable. If you read "The cat sat on the ___", your brain has already guessed the answer. If you see the letter `q`, you already know `u` is coming. A **language model** is just this guessing ability, turned into a machine:
 
-> **A language model is a function that assigns a probability to a sequence of words** — equivalently, one that predicts a probability distribution over the next word given the words so far.
+> **A language model is a function that gives a probability to a piece of text.** Equivalently: given the words so far, it says how likely each possible next word is.
 
-That one sentence is the entire field. Everything else — n-grams, HMMs, RNNs, Transformers — is a different answer to _"how do we represent 'the words so far'?"_
+That one sentence is the entire field. Everything that came after — n-grams, RNNs, Transformers, GPT — is just a better and better way to use "the words so far."
 
-### 3.1 Our two running examples
+### Two toy examples we will reuse everywhere
 
-Every worked number in the rest of this document comes from one of two toy setups, defined once here so no example ever appears out of nowhere:
+To keep things easy to follow, every number in this article comes from one of two tiny made-up examples. Meet them once, here:
 
-**The weather source** — used for the information-theory ideas (entropy, cross-entropy). A city where each day's weather is drawn with fixed probabilities:
+**The weather city.** A city where each day's weather follows fixed probabilities:
 
 | Outcome | sun | rain | snow | hail |
 | ------- | --- | ---- | ---- | ---- |
-| Probability | $\tfrac{1}{2}$ | $\tfrac{1}{4}$ | $\tfrac{1}{8}$ | $\tfrac{1}{8}$ |
+| Probability | 1/2 | 1/4 | 1/8 | 1/8 |
 
-**The cat corpus** — used for everything involving text: training, generation, and evaluation. Our complete "training dataset" is three sentences:
+**The cat corpus.** Our entire "training data" is three sentences:
 
 ```text
 the cat sat
@@ -56,296 +56,298 @@ the cat ran
 the dog sat
 ```
 
-Nine words total, five distinct words (the, cat, dog, sat, ran). It is absurdly small **on purpose**: every count, probability, and failure mode in §4–§7 can be verified in your head against these three lines. When we later swap in a real corpus (Brown, WikiText), only the size changes — never the machinery.
+It is ridiculously small on purpose: you can check every number in this article in your head. When we later use a real dataset, only the size changes — the method stays identical.
 
-One notation note used throughout: sentences get padded with boundary markers, written `⟨s⟩` (sentence start) and `⟨/s⟩` (sentence end), so "the cat sat" is processed as `⟨s⟩ the cat sat ⟨/s⟩`. Why they exist becomes clear in §7.3.
+One small convention: we mark where sentences start and end with special symbols, written `⟨s⟩` (start) and `⟨/s⟩` (end). So "the cat sat" becomes `⟨s⟩ the cat sat ⟨/s⟩`. The reason will become obvious when we start counting.
 
-## 4. Shannon (1948): information, entropy, and approximating English
+## 4. Shannon (1948): measuring surprise, and the first language models
 
-Claude Shannon's _A Mathematical Theory of Communication_ (Bell System Technical Journal, 1948) was about transmitting messages over noisy channels, but it created the mathematical vocabulary of language modeling.
+Claude Shannon's paper *A Mathematical Theory of Communication* was about sending messages over telephone lines. But to do that, he had to answer a deeper question — *how much information does a message carry?* — and his answer became the foundation of language modeling.
 
-### 4.1 Self-information: rare events carry more information
+### 4.1 Surprise: rare news is big news
 
-The **self-information** of an event $x$ with probability $p(x)$:
+Shannon's starting point: **how much a message tells you depends on how unlikely it was.** "The sun rose this morning" tells you nothing — you already knew. "It snowed in Death Valley" tells you a lot — you did not see it coming. So he measured the information in an event by its surprise:
 
-$$I(x) = \log_2 \frac{1}{p(x)} = -\log_2 p(x) \quad \text{(bits)}$$
+$$\text{surprise of event } x = \log_2 \frac{1}{p(x)} \quad \text{(measured in bits)}$$
 
-Intuition: a certain event ($p=1$) tells you nothing ($I=0$); a rare event is a big surprise and carries many bits. "The sun rose today" is low-information; "it snowed in Death Valley" is high-information.
+Read it simply: **the smaller the probability $p$, the bigger the surprise.** Some examples:
 
-**Worked numbers** (all from $I = \log_2 \frac{1}{p}$):
+| Event | Probability | Surprise |
+| ----- | ----------- | -------- |
+| something certain | 1 | 0 bits |
+| a coin lands heads | 1/2 | 1 bit |
+| a die rolls 5 | 1/6 | about 2.6 bits |
+| you draw the ace of spades | 1/52 | about 5.7 bits |
+| you win a 1-in-a-million lottery | 1/1,000,000 | about 20 bits |
 
-| Event | $p$ | Self-information |
-| ----- | --- | ---------------- |
-| something certain | $1$ | $0$ bits |
-| fair coin lands heads | $1/2$ | $1$ bit |
-| a die rolls 5 | $1/6$ | $\approx 2.6$ bits |
-| a specific card drawn from a deck | $1/52$ | $\approx 5.7$ bits |
-| winning a 1-in-a-million lottery | $10^{-6}$ | $\approx 19.9$ bits |
+The same idea works on letters and words. After a `q`, the letter `u` appears about 97% of the time — so seeing it is worth almost nothing (0.04 bits). Seeing a rare word like *aardvark* is a big surprise (about 17 bits). **Predictable text is cheap. Surprising text is expensive.** Most of language is cheap — and that fact is why language models can exist at all.
 
-Now in language: after the letter `q`, English produces `u` with probability $\approx 0.97$ — seeing it costs $\log_2\frac{1}{0.97} \approx 0.04$ bits, almost no news at all. Seeing a rare word like *aardvark* ($p \approx 1/100{,}000$) costs $\approx 16.6$ bits. **Predictable symbols are cheap, surprising ones are expensive** — and language is mostly cheap symbols, which is why it's compressible and predictable.
+### 4.2 Entropy: the average surprise
 
-### 4.2 Entropy: the average surprise of a source
+One event has a surprise. A *source* of events — the weather, a stream of English letters — has an **average** surprise. That average is called **entropy**:
 
-**Entropy** is the _expected_ self-information over all events the source can produce:
+$$H = \sum_x p(x) \cdot \log_2 \frac{1}{p(x)} = \text{(probability of each outcome)} \times \text{(its surprise), summed up}$$
 
-$$H = \sum_x p(x) \log_2 \frac{1}{p(x)} = -\sum_x p(x)\log_2 p(x)$$
+Entropy answers: **"on average, how unpredictable is this source?"**
 
-Entropy measures how unpredictable a source is, in bits per symbol. A fair coin: $H = 1$ bit. A two-headed coin: $H = 0$. English text: Shannon estimated roughly ~1 bit per letter — far below the $\log_2 27 \approx 4.75$ bits of random letters, which is a _measurement_ of how redundant and predictable language is.
+Let's compute one by hand, using our weather city (sun 1/2, rain 1/4, snow 1/8, hail 1/8):
 
-**Worked example — same outcomes, different predictability.** Take our weather source (§3.1): sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$. Each term of the sum is (probability) × (that outcome's self-information):
+$$H = \tfrac{1}{2}(1) + \tfrac{1}{4}(2) + \tfrac{1}{8}(3) + \tfrac{1}{8}(3) = 1.75 \text{ bits per day}$$
 
-$$H = \tfrac{1}{2}(1) + \tfrac{1}{4}(2) + \tfrac{1}{8}(3) + \tfrac{1}{8}(3) = 1.75 \text{ bits}$$
+Each term is easy to read: sun has probability 1/2 and surprise 1 bit; hail has probability 1/8 and surprise 3 bits. Sunny days are cheap and common; hail is expensive but rare. Entropy is the average bill.
 
-Sun is a cheap 1-bit event that happens half the time; hail is an expensive 3-bit surprise but rare — entropy is the average bill. Compare: if all four outcomes were equally likely, $H = \log_2 4 = 2$ bits, the maximum possible. Skewing the distribution toward predictable outcomes dropped the entropy from 2 to 1.75 **with the exact same set of outcomes**. Same effect on a biased coin: fair coin $H = 1$ bit, but a 90/10 coin gives $H = 0.9\log_2\frac{1}{0.9} + 0.1\log_2\frac{1}{0.1} \approx 0.47$ bits — still two outcomes, half the uncertainty.
+Now compare: if all four weathers were equally likely, entropy would be 2 bits — the maximum. Our lopsided city scores only 1.75. **Same four outcomes, less unpredictability — because one outcome dominates.** The more lopsided the probabilities, the lower the entropy. A fair coin has entropy 1 bit; a trick coin that lands heads 90% of the time has entropy 0.47 bits; a two-headed coin has entropy 0 — no surprise at all.
 
-**What entropy really means: the guessing game.** The formula becomes concrete once you know what a "bit" physically is: **one bit = the answer to one perfect yes/no question.** So entropy is simply **the average number of yes/no questions you need to guess the source's next symbol.** That's the whole meaning. Three steps ground Shannon's "~1 bit per letter of English" claim:
+### What entropy *really* means: the guessing game
 
-**Step 1 — where 4.75 comes from.** Imagine letters produced by a lottery machine: 26 letters plus space, all equally likely, no memory of what came before. To identify the next symbol, your best strategy is to halve the candidates with every question: "Is it in A–M?" → "Is it in A–F?" → ... With 27 possibilities that takes $\log_2 27 \approx 4.75$ questions. So **4.75 bits/letter is the uncertainty of pure gibberish** — the worst case, where nothing helps you guess.
+Here is the most concrete way to understand entropy. A "bit" is not an abstract unit — **one bit = one yes/no question.** And entropy is simply:
 
-**Step 2 — but English is not a lottery machine.** Play the same game on real text. You're reading:
+> **The average number of yes/no questions you need to guess the next symbol.**
+
+Let's use this to understand a famous claim of Shannon's: *English text carries only about 1 bit per letter.*
+
+**Step 1 — the worst case.** Imagine letters coming from a lottery machine: 26 letters plus space, all equally likely, no memory. To guess the next symbol, your best strategy is to cut the candidates in half with each question: "Is it in A–M?" → "Is it in A–F?" → ... With 27 candidates, you need $\log_2 27 \approx 4.75$ questions. So **random gibberish costs about 4.75 questions per letter.** Nothing helps you; you must ask everything.
+
+**Step 2 — English is not a lottery machine.** Play the same game on real text. You are reading:
 
 > The cat sat on the ma\_
 
-How many questions do you need? Essentially zero — "Is it *t*?" → yes, done. Or:
+How many questions do you need? Zero, basically — "Is it *t*?" Yes. Done. Or:
 
 > q\_
 
-One question: "Is it *u*?" → yes, ~97% of the time. Meanwhile a genuinely open position — the first letter of a brand-new sentence — might cost 3–4 questions. Entropy is the **average over all positions**, and for English that average lands around **1 question per letter**, not 4.75.
+One question: "Is it *u*?" Yes, almost always. Only genuinely open spots — like the first letter of a brand-new sentence — cost you 3 or 4 questions. Average over all positions, and English comes out around **1 question per letter**, not 4.75.
 
-**Step 3 — so "eliminates ~80% of the uncertainty" means:** before the next letter arrives there are notionally 27 candidates — 4.75 questions' worth of doubt. But spelling rules, grammar, and word habits have already killed most candidates *for free*: after `q` almost nothing survives; after "the ma" in that sentence, everything but *t*, *n*, *p* is dead. Context did the questioning for you. Of the 4.75 questions gibberish would require, context pre-answers ~3.75, leaving you ~1 to actually ask — and $3.75/4.75 \approx 80\%$.
+**Step 3 — what happened to the other 3.75 questions?** Spelling, grammar, and habit answered them *for you, before you asked*. After a `q`, nearly every letter is already ruled out. After "the ma" in that sentence, everything except *t*, *n*, *p* is dead. Out of 4.75 questions' worth of doubt, the structure of English silently answers about 3.75, leaving you roughly 1. That is what it means to say English is about **80% redundant**.
 
-**Why this matters beyond the history lesson:**
+**Why should you care?**
 
-- **Redundancy is why compression works.** English needs ~1 bit/letter but ASCII spends 8 — that gap is exactly why ZIP shrinks text about 5×. It's also why "u cn stll rd ths": the deleted letters carried almost no information, so context reconstructs them.
-- **Redundancy is why language models are possible at all.** A language model is a machine for exploiting this predictability. If English really were 4.75 bits/letter — a lottery machine — next-word prediction would be impossible and this entire roadmap wouldn't exist. Entropy ≈ 1 bit/letter is the *quantitative proof* that "predict the next symbol" is a learnable task.
+- **This is why compression works.** English only needs ~1 bit per letter, but your computer stores 8 bits per letter. That wasted space is exactly what ZIP files squeeze out — text compresses about 5×. It is also why "u cn stll rd ths": the deleted letters carried almost no information, so your brain fills them back in.
+- **This is why language models are possible.** A language model is a machine that exploits predictability. If English really were random gibberish, "predict the next word" would be a hopeless task and none of this field would exist. "1 bit per letter" is the mathematical proof that the task is winnable.
 
-**How ~1 bit/letter was actually measured: the staircase of estimates.** Nobody knows the true probability distribution of English, so its entropy can't be computed directly. Shannon's move: compute the entropy of the next letter conditioned on **increasing amounts of context**. Each extra scrap of context can only reduce uncertainty, so the estimates form a descending staircase whose limit is the true entropy:
+### How Shannon actually measured "1 bit per letter"
 
-| Estimate | Conditions on | Bits/letter |
-| -------- | ------------- | ----------- |
-| $F_0$ | nothing (uniform over 27 symbols) | 4.75 |
-| $F_1$ | letter frequencies | 4.14 |
-| $F_2$ | previous 1 letter | 3.56 |
-| $F_3$ | previous 2 letters | 3.3 |
-| word frequencies | whole words | ~2.6 |
-| human reader (1951) | ~100 letters of context | **0.6 – 1.3** |
+There's a problem with the claim above: to compute entropy exactly you need the true probabilities of English — and nobody knows them. Shannon's solution was clever: **compute the entropy with more and more context, and watch where the numbers head.** Each extra piece of context can only make you less uncertain, so the estimates keep falling — like walking down a staircase. The true entropy is wherever the staircase bottoms out:
 
-The staircase is clearly still falling at $F_3$, but count tables couldn't go deeper (context of 10 letters needs $27^{10}$ entries — and this was computed by hand from books). So Shannon swapped the count table for the best available model of English: **a human brain**. In his 1951 follow-up (*Prediction and Entropy of Printed English*), subjects guessed the next letter of a hidden text — with the preceding ~100 letters visible — until correct, and the guess counts (mostly 1, 1, 1, 2, 1, ... with occasional hard spots at new words) convert into the entropy bounds in the last row. The entropy of English was literally measured by humans playing hangman.
+| What you're told before guessing | Questions per letter |
+| -------------------------------- | -------------------- |
+| nothing — all 27 symbols equal | 4.75 |
+| how common each letter is overall | 4.14 |
+| the previous letter | 3.56 |
+| the previous 2 letters | 3.3 |
+| how common each *word* is | ~2.6 |
+| the previous 100 letters (a human guesser, 1951) | **0.6 – 1.3** |
 
-Two things to notice, because they run through this whole roadmap. First, each staircase row is a *model* of English, and its number is that model's average surprise — an **upper bound** on the true entropy that tightens as the model improves (this is exactly cross-entropy, defined next in §4.3). Second, the staircase is still being descended *today*: text compressed with a modern LLM reaches ~0.6–0.7 bits per character, hugging the bottom of Shannon's 1951 human range. Uniform → unigram → bigram → trigram → human → GPT is one continuous plot on an axis Shannon drew — and the bigram model we build in §7 sits on a known step of it.
+The first rows he computed from letter-count tables — by hand, from books. But the staircase was clearly still falling, and the tables couldn't go deeper (tracking 10 letters of context would need $27^{10}$ table entries). So in a 1951 follow-up paper, Shannon replaced the tables with the best model of English available: **a person.** He showed people a passage cut off mid-sentence and had them guess the next letter until they got it right, counting the guesses. Mostly the counts read 1, 1, 1, 2, 1... — instant hits — with occasional hard spots at the start of new words. From these guess counts he computed the last row of the table. **The entropy of English was literally measured by humans playing hangman.**
 
-One caution: entropy is a property of **language itself** — the irreducible unpredictability no model can beat. To score a *model*, we need its sibling.
+Two things about this staircase are worth remembering. First, every row is really a *model* of English — and its number is that model's average surprise, which is always somewhat *above* the true entropy. Better model → smaller number. Second, the staircase is still being walked down *today*: compressing text with a modern LLM gets to about 0.6–0.7 bits per letter, right at the bottom of the range Shannon measured with humans in 1951. From count tables to GPT, it's all one long descent down the same staircase.
 
-### 4.3 Cross-entropy: the guessing game with the wrong beliefs
+One warning before the next idea. Entropy is a property of **the language itself** — the unpredictability that no model, however good, can remove. It doesn't measure any model. To measure a *model*, we need a twin concept.
 
-In §4.2's guessing game there was a hidden assumption: you knew the true probabilities, so you always asked the *smartest possible questions* — "sun?" first, because sun is genuinely the most common. Entropy is the average number of questions **when your beliefs are perfect**.
+### 4.3 Cross-entropy: the guessing game with wrong beliefs
 
-But a model's beliefs are never perfect. **Cross-entropy is the average number of questions you need when reality deals the outcomes, but your question strategy is built from *your model's* beliefs.** Wrong beliefs → you ask about the wrong things first → you waste questions. That's the entire concept.
+In the guessing game above, we quietly assumed you knew the true probabilities — you always asked the smartest question first ("sun?" — because sun really is the most common). So entropy is the cost of the game **when your beliefs are perfect.**
 
-**Same weather, wrong model.** Reality (our weather source, §3.1): sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$ — entropy 1.75 questions/day. Now suppose your model believes the *exact reverse*: hail $\tfrac{1}{2}$, snow $\tfrac{1}{4}$, rain $\tfrac{1}{8}$, sun $\tfrac{1}{8}$. Trusting it, you ask "hail?" first, then "snow?", then "rain?":
+But a model's beliefs are never perfect. That's where cross-entropy comes in:
 
-| Day's actual weather | How often (truth) | Your questions | Cost |
-| -------------------- | ----------------- | -------------- | ---- |
-| hail | $\tfrac{1}{8}$ | "hail?" ✓ | 1 |
-| snow | $\tfrac{1}{8}$ | "hail?" ✗ "snow?" ✓ | 2 |
-| rain | $\tfrac{1}{4}$ | "hail?" ✗ "snow?" ✗ "rain?" ✓ | 3 |
-| sun | $\tfrac{1}{2}$ | "hail?" ✗ "snow?" ✗ "rain?" ✗ → sun | 3 |
+> **Cross-entropy is the average number of questions you need when reality picks the outcomes, but *your model's beliefs* pick the questions.** Wrong beliefs → you ask about the wrong things first → you waste questions.
 
-Your cheap 1-question shortcut is reserved for hail — which almost never happens — while sun, *half of all days*, costs you 3 questions every time. Average:
+Let's play it out. Reality is our weather city: sun 1/2, rain 1/4, snow 1/8, hail 1/8 — entropy 1.75 questions per day. But suppose your model believes the *exact opposite*: hail 1/2, snow 1/4, rain 1/8, sun 1/8. Trusting the model, you ask "hail?" first, then "snow?", then "rain?":
 
-$$H(p, q) = \tfrac{1}{2}(3) + \tfrac{1}{4}(3) + \tfrac{1}{8}(2) + \tfrac{1}{8}(1) = 2.625 \text{ questions/day}$$
+| Today's actual weather | How often this happens | Your questions | Cost |
+| ---------------------- | ---------------------- | -------------- | ---- |
+| hail | 1/8 | "hail?" ✓ | 1 |
+| snow | 1/8 | "hail?" ✗ "snow?" ✓ | 2 |
+| rain | 1/4 | "hail?" ✗ "snow?" ✗ "rain?" ✓ | 3 |
+| sun | 1/2 | "hail?" ✗ "snow?" ✗ "rain?" ✗ → must be sun | 3 |
 
-Reality is only 1.75 questions unpredictable; you're paying 2.625. The extra **0.875 questions/day is pure cost of believing the wrong thing.** Note what each side contributes: **reality decides how often each row happens; your model decides how expensive each row is.**
+See the disaster: your cheap 1-question shortcut is saved for hail, which almost never happens — while sun, *half of all days*, costs you 3 questions every single time. Average it out:
 
-That sentence *is* the formula. Reality's probability $p(x)$ weights each outcome; your model's belief $q(x)$ sets its cost, $\log_2 \frac{1}{q(x)}$ (believe strongly → cheap when right; doubt → expensive):
+$$\tfrac{1}{2}(3) + \tfrac{1}{4}(3) + \tfrac{1}{8}(2) + \tfrac{1}{8}(1) = 2.625 \text{ questions per day}$$
 
-$$H(p, q) = \sum_x p(x) \log_2 \frac{1}{q(x)}$$
+The weather is only 1.75 questions unpredictable — but *you* are paying 2.625. The extra 0.875 questions per day is the pure price of believing the wrong thing. And notice who contributes what: **reality decides how often each row happens; your model decides how expensive each row is.**
 
-Compare entropy, $\sum_x p(x)\log_2\frac{1}{p(x)}$ — identical, except there the questioner's beliefs *are* the truth. The "cross" is that the probability inside the log changed hands: reality picks, your model pays.
+That last sentence *is* the formula. Reality's probability $p(x)$ weights each outcome; your model's belief $q(x)$ sets its price:
 
-For language models one adjustment: we never know the true $p$ of English, so real text stands in for it — let reality deal actual words from a held-out test set and average your model's cost over $N$ of them:
+$$H(p, q) = \sum_x p(x) \cdot \log_2 \frac{1}{q(x)}$$
 
-$$H \approx -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{context}_i) \quad \text{(bits per word)}$$
+It's the entropy formula with one change: the probability inside the log is the *model's*, not reality's. Hence the name "cross" — two different probability lists crossed together: reality picks, your model pays.
 
-In general:
+For language there is one practical adjustment. We don't know the true probabilities of English — but we have the next best thing: real text. So we let real sentences play the role of reality, and average the model's surprise over $N$ words of test text:
 
-$$\text{cross-entropy} = \underbrace{\text{entropy}}_{\text{how unpredictable reality is}} + \underbrace{\text{extra}}_{\text{how wrong your beliefs are}}$$
+$$H = -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{previous words}) \quad \text{(bits per word)}$$
 
-so cross-entropy $\geq$ entropy, with equality only for a perfect model. Training any language model — bigram counter or GPT — is nothing but shrinking that second term; the first is a fixed property of language. One-line version: **entropy is how many questions the world costs; cross-entropy is how many questions the world costs *you, with your beliefs* — and the gap is exactly how wrong your beliefs are.**
+In plain words: **walk through the text word by word, ask the model "how likely did you think THIS word was?", take the surprise, and average.**
 
-**The same computation on language** — this is exactly what we'll code in §7. A bigram model reads the test sentence `⟨s⟩ the cat sat ⟨/s⟩` (the first sentence of our cat corpus, §3.1). At each step reality reveals the true next word, and we look up the probability the model *had assigned* to it. (The probabilities below belong to a model trained on some *other, larger* corpus — chosen as round numbers so the arithmetic is clean; in §7.3 we'll train a model on the cat corpus itself and get its real numbers.)
+The relationship between the two concepts, in one line:
 
-| Context | True next word | $P_{\text{model}}$ | Surprise $-\log_2 P$ |
-| ------- | -------------- | ------------------ | -------------------- |
+$$\text{cross-entropy} = \underbrace{\text{entropy}}_{\text{how unpredictable the world is}} + \underbrace{\text{extra}}_{\text{how wrong your model is}}$$
+
+Cross-entropy can never be below entropy, and equals it only for a perfect model. **Training a language model — a 1950s count table or GPT — means one thing: shrinking that "extra" part.** The entropy part is fixed; it belongs to the language, not the model.
+
+**Let's do it on an actual sentence.** A model reads the test sentence `⟨s⟩ the cat sat ⟨/s⟩`, one word at a time. At each step, we check what probability the model gave to the word that actually came (these model probabilities are made-up round numbers so the math is easy to follow):
+
+| Words so far | Actual next word | Model's probability | Surprise |
+| ------------ | ---------------- | ------------------- | -------- |
 | `⟨s⟩` | the | 0.25 | 2 bits |
 | the | cat | 0.125 | 3 bits |
 | cat | sat | 0.5 | 1 bit |
 | sat | `⟨/s⟩` | 0.25 | 2 bits |
 
-Cross-entropy = the average of the surprise column = $\frac{2+3+1+2}{4} = 2$ bits/word. Step 3 is the model's best moment (after "cat" it strongly expected "sat" — barely surprised); step 2 its worst. A better model is simply one that puts higher probability on the words that actually occur, paying fewer bits per word. And spot the trap: had the model assigned "sat" probability **0**, that row would cost $\infty$ bits and no other row could compensate — hold that thought for smoothing (§7.4).
+Cross-entropy = the average of the surprise column = (2+3+1+2)/4 = **2 bits per word**. The third row is the model's best moment: after "cat" it strongly expected "sat", so it was barely surprised. The second row is its worst. A better model is simply one that puts higher probability on the words that actually show up — lower average surprise.
 
-Keep this quantity in mind: **perplexity (§7) is just cross-entropy exponentiated.** If cross-entropy is fuzzy, perplexity will be too.
+One trap to notice, because it comes back later: what if the model had given "sat" probability **zero**? Then that row's surprise would be *infinite*, and no amount of good rows could rescue the average. Remember this.
 
-### 4.4 Language as a Markov source: the n-th order approximations
+### 4.4 The first text generators: Shannon's dice
 
-So far the models have only *judged* text — guessing letters, paying bits. Shannon's last demo flips them around: **if a model can assign probabilities to what comes next, it can also *write* — just roll dice according to those probabilities.** This section is where language models stop being scoring functions and start generating.
+So far, models have only *judged* text — guessing letters, measuring surprise. Shannon's last demo flipped the direction: **if a model can say how likely each next symbol is, it can also *write* — just roll dice according to those probabilities.** Judge and writer are the same machine, pointed different ways.
 
-**First, the name.** A **Markov source** is a random text generator with deliberately amputated memory: it emits one symbol at a time, and its choice depends only on the **last $n-1$ symbols** — everything earlier is forgotten. (After A. A. Markov, who in 1913 hand-counted vowel/consonant patterns in Pushkin's *Eugene Onegin* — the first statistical language analysis ever.) An "$n$-th order approximation of English" is a Markov source whose probabilities were **estimated by counting real English text**: tally which symbol follows which context, convert to frequencies, done. Notice that's the first appearance of the modern pipeline — *count a corpus, then sample from the counts* — i.e., **training** and **generation**.
+The models he used are called **Markov sources** — a fancy name for a simple thing: a text generator with a very short memory. It spits out one symbol at a time, and its choice depends only on the last few symbols; everything earlier is forgotten. (The name honors A. A. Markov, who in 1913 counted vowel/consonant patterns in a Pushkin poem — the first statistical study of language ever.) Building one is nothing but counting: go through real English text, tally which symbol follows which, turn the tallies into probabilities. Then let it roll.
 
-**The experiment.** Shannon built these sources at increasing order and let each one write. Read the samples column top to bottom — this is the founding demo of language modeling:
+Shannon built a series of these, each with one more symbol of memory, and let each one write. Read the samples from top to bottom:
 
-| Order              | Next symbol depends on       | Generated sample                              |
-| ------------------ | ---------------------------- | --------------------------------------------- |
-| 0th                | nothing (all 27 equally likely) | `XFOML RXKHRJFFJUJ` — random junk             |
-| 1st                | letter frequencies only      | `OCRO HLI RGWR` — right letter *mix*, no structure |
-| 2nd                | previous 1 letter            | `ON IE ANTSOUTINYS` — pronounceable fragments |
-| 3rd                | previous 2 letters           | `IN NO IST LAT WHEY` — almost word-like       |
-| word-level 1st/2nd | previous word(s)             | locally grammatical phrases that drift off-topic |
+| Memory | Sample output |
+| ------ | ------------- |
+| none — random symbols | `XFOML RXKHRJFFJUJ` — pure junk |
+| letter frequencies only | `OCRO HLI RGWR` — the right *mix* of letters, no structure |
+| 1 previous letter | `ON IE ANTSOUTINYS` — pronounceable chunks |
+| 2 previous letters | `IN NO IST LAT WHEY` — almost words |
+| previous word | grammatical-looking phrases that wander off topic |
 
-Each row remembers one symbol more than the last, and the output gets visibly more English-like. Two things to notice:
+Every extra symbol of memory makes the output visibly more English. This little table from 1948 is the founding demo of language modeling — and notice the last row's flaw: the phrases read fine three words at a time but drift globally, **because the generator literally cannot remember anything outside its tiny window.** Hold that thought; it becomes the central weakness of everything in this article.
 
-- **This is §4.2's staircase, run in reverse.** Same models, two modes: point them at existing text and they *score* it (the staircase of entropy estimates); let them roll dice and they *generate*. Better scorer ⇔ better writer — one competence, two directions. That equivalence still holds: an LLM's perplexity and the quality of its generations rise and fall together.
-- **Fluency is local; meaning is not.** The word-level samples read fine within any 3-word window yet drift globally — because the source *has no memory beyond its window*. Every failure of n-gram models (§8) is this row of the table, and every architecture after it (RNNs, attention) is an attempt to extend the window.
+**Try it yourself with the cat corpus.** Our training data: "the cat sat", "the cat ran", "the dog sat". Count what follows each word:
 
-**Do it yourself at word level.** Take the cat corpus (§3.1). Training = counting what follows each word:
+- after `the`: cat 2 times out of 3, dog 1 out of 3
+- after `cat`: sat half the time, ran half the time
+- after `dog`: sat always
 
-- after `the`: cat $\tfrac{2}{3}$, dog $\tfrac{1}{3}$
-- after `cat`: sat $\tfrac{1}{2}$, ran $\tfrac{1}{2}$
-- after `dog`: sat $1$
+Now generate: start at `the`, roll a die weighted by those counts, write down the winner, move to it, repeat. You might get "the dog sat", or "the cat ran" — both fluent, the dice decide. This little table of counts **is** a language model, built with nothing but counting. And when a modern LLM writes its reply to you, it is running this exact loop — with a memory of thousands of words instead of one, and a vastly bigger (learned, not counted) probability table. Shannon's dice, still rolling.
 
-Generation = start at `the`, roll a die weighted by the counts, emit the word, move to it, repeat. You might get *"the dog sat"* — or *"the cat ran"*; both are fluent, and the die decides. This tiny table **is** a 1st-order word approximation, built with nothing but counting — precisely the machinery we formalize in §7 and implement in code. And an LLM sampling its reply to you is this same loop with a vastly bigger (implicit) table and thousands of words of context instead of one: Shannon's dice, still rolling.
+## 5. Church & Mercer (1993): the field officially switches sides
 
-## 5. Church & Mercer (1993): the empiricist manifesto
+*Computational Linguistics Using Large Corpora* contains no famous formula — it's a **position paper**, the introduction to a special journal issue, announcing that the counting approach had won. Its argument, in three lines:
 
-_Computational Linguistics Using Large Corpora_ is not a formula paper — it's a **position piece** (the introduction to a special issue of _Computational Linguistics_) marking the field's official turn back to empiricism. Its argument:
+- Huge amounts of digital text now exist.
+- So we can *measure* how language behaves instead of theorizing about how it should behave.
+- And the measured approach is already beating the rulebooks — in speech, and increasingly in translation and tagging.
 
-- Large corpora (millions → billions of words) are now available in machine-readable form.
-- Probabilities of linguistic events can therefore be **estimated from real data** rather than stipulated by theory.
-- Data-driven methods were already outperforming rule-based ones in speech and beginning to in translation and tagging.
+Cite this paper as **the moment statistical NLP became mainstream** — not as the source of any formula. The math itself is older: Shannon, and Markov before him.
 
-Its contribution is the _argument and the survey of evidence_, not an equation. Cite it as the moment statistical NLP became the mainstream, not as the source of the n-gram formula (that machinery is older — Shannon, and Markov before him).
+## 6. Jelinek (1997): statistics meets a real product — speech recognition
 
-## 6. Jelinek (1997): statistics meets a real problem — speech recognition
+Jelinek's book *Statistical Methods for Speech Recognition* documents the IBM system that proved all these ideas on a real, hard, commercial problem. Speech recognition is the perfect showcase for why language models must exist, because of one stubborn fact:
 
-_Statistical Methods for Speech Recognition_ documents the IBM approach that made all of this practical. Speech recognition is the perfect showcase for why language models must exist:
+> Spoken aloud, **"recognize speech"** and **"wreck a nice beach"** sound nearly identical. No amount of audio analysis can fully tell them apart. The only thing that can is knowing *which word sequence is more plausible English.*
 
-> Acoustically, **"recognize speech"** and **"wreck a nice beach"** are nearly identical. No amount of audio analysis can fully separate them. Only knowledge of _which word sequence is more plausible English_ can.
+### 6.1 Splitting the problem in two
 
-### 6.1 The noisy-channel / Bayes decomposition
+The task: given audio $A$, find the word sequence $W$ that most likely produced it. Using Bayes' rule (a standard probability identity), that goal splits cleanly into two parts:
 
-Given audio $A$, find the word sequence $W$ maximizing $P(W \mid A)$. By Bayes' rule:
+$$\hat{W} = \arg\max_W \; \underbrace{P(A \mid W)}_{\text{acoustic model}} \times \underbrace{P(W)}_{\text{language model}}$$
 
-$$\hat{W} = \arg\max_W P(W \mid A) = \arg\max_W \underbrace{P(A \mid W)}_{\text{acoustic model}} \cdot \underbrace{P(W)}_{\text{language model}}$$
+In plain words, the best guess is the word sequence that wins on **two tests at once**:
 
-($P(A)$ is constant across candidates, so it drops out.) Two independent components:
+- **Acoustic model:** *does the audio sound like these words?*
+- **Language model:** *do these words sound like real English?* — this is exactly the counting model from this article.
 
-- **Acoustic model** $P(A \mid W)$: _does the audio sound like these words?_
-- **Language model** $P(W)$: _are these words likely English?_ — this is our n-gram model.
+"Wreck a nice beach" passes the first test but flunks the second — English text almost never says it. That's how the right answer wins. This two-part recipe became the template for machine translation and much more, and the language model is the reusable half — which is why it became the center of the whole field.
 
-This decomposition — a task-specific likelihood times a reusable prior over language — became the template for statistical machine translation and beyond. The LM is the reusable part, which is why it became the center of the field.
+### 6.2 Hidden Markov Models: guessing what you cannot see
 
-### 6.2 Hidden Markov Models
+**The problem.** Shannon's generators work when you can *see* the sequence you're modeling. But in speech recognition, you never see the words — you only hear sound. The thing you want (words) is **hidden**; the thing you have (audio) is just noisy evidence about it. A **Hidden Markov Model (HMM)** is the classic machine for this situation. It has two layers:
 
-**The problem HMMs solve.** A Markov source (§4.4) is fine when you can *see* the sequence you're modeling. But in speech recognition you never observe the words — you observe sound waves. The sequence you care about (words) is **hidden**; the sequence you have (acoustic measurements) is a noisy, ambiguous *consequence* of it. A **Hidden Markov Model** is exactly this two-layer story:
+1. **A hidden layer** that moves from state to state step by step — you never see it.
+2. **A visible layer**: at each step, the hidden state *leaks* one piece of evidence you can see.
 
-1. **A hidden layer** walks from state to state like an ordinary Markov chain — you never see it.
-2. **A visible layer**: at each step, the current hidden state *emits* an observation with some probability — this is all you ever see.
+The machine's job: from the visible evidence alone, work out the most likely hidden story behind it.
 
-The machine's job: given only the observations, reason backwards to the hidden path that best explains them.
+**A small example.** You work in a windowless office. You cannot see the weather (hidden: `sun` or `rain`). All you see is whether each coworker walks in with an umbrella (visible: `umbrella` or `none`). Two small tables describe the whole world:
 
-**A hand-sized example.** You work in a windowless office and can't see the weather (hidden states: `sun`, `rain`). All you observe is whether each arriving coworker carries an umbrella (observations: `umbrella`, `none`). Two probability tables define everything:
-
-*Transition matrix* — how the hidden world moves (weather has momentum):
+*How the hidden weather moves* (weather has momentum — sunny spells and rainy spells):
 
 | from \ to | sun | rain |
 | --------- | --- | ---- |
 | **sun** | 0.8 | 0.2 |
 | **rain** | 0.4 | 0.6 |
 
-*Emission matrix* — how the hidden state leaks into what you can see:
+*How the hidden weather leaks evidence:*
 
-| state \ emits | umbrella | none |
-| ------------- | -------- | ---- |
+| weather \ you see | umbrella | none |
+| ----------------- | -------- | ---- |
 | **sun** | 0.2 | 0.8 |
 | **rain** | 0.9 | 0.1 |
 
-(Plus a start distribution: day 1 is sun or rain with probability 0.5 each.)
+(And on the first day, sun or rain start at 50/50.)
 
-**Inference, by brute force.** Two coworkers arrive on two mornings, both with umbrellas: observations = (`umbrella`, `umbrella`). What was the weather? Score every possible hidden path as (start × emission × transition × emission):
+**Now let's solve one by hand.** Two mornings in a row, coworkers arrive carrying umbrellas. What was the weather? Check every possible two-day weather story, multiplying (start chance × evidence × weather change × evidence):
 
-| Hidden path | Probability | |
-| ----------- | ----------- | - |
-| sun → sun | $0.5 \cdot 0.2 \cdot 0.8 \cdot 0.2$ | $= 0.016$ |
-| sun → rain | $0.5 \cdot 0.2 \cdot 0.2 \cdot 0.9$ | $= 0.018$ |
-| rain → sun | $0.5 \cdot 0.9 \cdot 0.4 \cdot 0.2$ | $= 0.036$ |
-| rain → rain | $0.5 \cdot 0.9 \cdot 0.6 \cdot 0.9$ | $= \mathbf{0.243}$ |
+| Weather story | Multiply it out | Probability |
+| ------------- | --------------- | ----------- |
+| sun → sun | 0.5 × 0.2 × 0.8 × 0.2 | 0.016 |
+| sun → rain | 0.5 × 0.2 × 0.2 × 0.9 | 0.018 |
+| rain → sun | 0.5 × 0.9 × 0.4 × 0.2 | 0.036 |
+| rain → rain | 0.5 × 0.9 × 0.6 × 0.9 | **0.243** |
 
-Verdict: rain both days, and it isn't close. Notice *why* it wins: rain explains the umbrellas well (high emissions, 0.9) **and** rain-then-rain is a plausible weather story (transition 0.6). A hidden path must satisfy both masters — sound like the evidence *and* be a likely story on its own. Keep that sentence; it's about to become speech recognition.
+Rain both days, and it's not even close. Look at *why* it wins: rain explains the umbrellas well, **and** rain-after-rain is a believable weather story. A winning story must pass two tests at once — *match the evidence* and *be plausible on its own*. That should sound familiar: it's the acoustic model and the language model again, working inside one machine.
 
-**Why brute force dies, and the three classical algorithms.** With 2 states and 2 steps there were $2^2 = 4$ paths. Real speech: thousands of states, hundreds of time steps — $S^T$ paths, more than atoms in the universe. The reason HMMs conquered the field is that all three natural questions have **dynamic-programming** answers that run in $O(T \cdot S^2)$ — the trick being that paths sharing a state share their future, so you compute each state's best/total score once per time step instead of once per path (these are the three problems of Rabiner's famous 1989 tutorial):
+**The scaling problem, and the three classic algorithms.** With 2 states and 2 days there were only 4 stories to check. Real speech has thousands of states and hundreds of time steps — the number of stories explodes beyond anything computable. HMMs conquered the field because all three natural questions have fast shortcuts, based on one observation: *two stories that pass through the same state share their future, so you can score each state once per step instead of once per story.*
 
-| Question | Algorithm | Used for |
-| -------- | --------- | -------- |
-| How likely are these observations at all? $P(O)$ | **Forward** (sum over paths) | scoring/comparing models |
-| What's the single best hidden path? | **Viterbi** (max over paths) | *decoding* — recognition itself |
-| How do I learn the two matrices without labeled data? | **Baum–Welch** (EM; uses forward–backward) | training |
+| Question | Algorithm |
+| -------- | --------- |
+| How likely is this evidence overall? | **Forward** |
+| What's the single most likely hidden story? | **Viterbi** — this *is* recognition |
+| How do I learn the two tables from raw data? | **Baum–Welch** |
 
-Viterbi is just the brute-force table above, kept pruned: at each time step, for each state, remember only the best path that reaches it — every extension of a losing path loses, so nothing of value is discarded.
+Viterbi is just our brute-force table with pruning: at each step, for each state, keep only the best story that reaches it, and throw the rest away — extending a losing story can never beat extending the winning one.
 
-**Now the payoff: this is §6.1's equation as a machine.** Map the pieces onto speech:
+**Mapping it to speech:** hidden states = the words being spoken; the "weather momentum" table = which words follow which — *that's the language model*; the "evidence leak" table = what sounds each word makes — the acoustic model. Recognition = Viterbi finding the word story that both sounds right and reads like English. "Recognize speech" beats "wreck a nice beach" on the momentum table, not the sound table.
 
-- **Hidden states** = the word/phoneme sequence $W$ being spoken
-- **Transitions** = which words plausibly follow which — *this is exactly the n-gram language model $P(W)$* from this article
-- **Emissions** = what sounds each word produces — the acoustic model $P(A \mid W)$
-- **Recognition** = Viterbi decoding: find the hidden word path that both *sounds like the audio* (emissions) and *reads like English* (transitions)
+**One idea to file away.** The heart of the HMM is *a hidden state that summarizes the past and gets carried forward one step at a time*. Replace the hand-built probability tables with a learned vector, and you have invented the RNN — which we meet on Day 7. The future was hiding inside 1980s speech recognition.
 
-"Recognize speech" beats "wreck a nice beach" not because it sounds different — the emissions nearly tie — but because the transition side (the language model) says the first is a far likelier walk through English. The two-masters structure of the umbrella example *is* the noisy-channel equation, running in real time.
+## 7. Building the n-gram model: the actual math
 
-**Where this thread goes.** HMMs ruled speech recognition and sequence labeling (POS tagging, named entities) for three decades — a hidden cause, a Markov walk, and noisy evidence turn out to describe half of NLP. And file away the deeper idea: *a hidden state that summarizes the past and carries it forward one step at a time*. Strip away the probability tables, make that state a learned vector, and you have the RNN — Day 7. The architecture of the future is hiding inside 1980s speech recognition.
+Everything above now becomes one buildable machine. The plan, in one paragraph: we want the probability of a whole sentence (7.1) — computing it exactly needs statistics nobody can collect, so we take a shortcut (7.2) — the shortcut makes training literally just counting (7.3) — counting has one fatal flaw (7.4) — we patch it, then grade the model with perplexity (7.5).
 
-## 7. The math of n-gram language models
+Our running data, as always, is the cat corpus: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. We will train on it by hand, break the model, fix it, and score it.
 
-Everything so far becomes one buildable machine here. The story of this section, in one paragraph: we want the probability of a whole sentence (7.1) — but computed exactly, it needs statistics nobody can collect, so we take the Markov shortcut (7.2) — which makes training literally just counting (7.3) — but counting has a fatal flaw on unseen word pairs (7.4) — and once that's patched, we grade the machine with perplexity (7.5).
+### 7.1 Step one: the probability of a sentence
 
-One running example throughout: the cat corpus (§3.1) — *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. We will train on it by hand, break the model with a new sentence, fix it, and score it.
+How likely is the sentence "the cat sat"? Peel it one word at a time, multiplying as you go:
 
-### 7.1 Chain rule: the exact decomposition
+$$P(\text{the cat sat}) = P(\text{the}) \times P(\text{cat} \mid \text{the}) \times P(\text{sat} \mid \text{the cat})$$
 
-A language model must assign a probability to a whole sentence. The chain rule says: **peel off one word at a time, and multiply the probability of each word given everything before it.** For "the cat sat":
+Read it like a story: how likely does a sentence start with "the"? — times — given "the", how likely is "cat" next? — times — given "the cat", how likely is "sat"? This works for any sentence of any length:
 
-$$P(\text{the cat sat}) = P(\text{the}) \cdot P(\text{cat} \mid \text{the}) \cdot P(\text{sat} \mid \text{the cat})$$
+$$P(w_1 w_2 \cdots w_n) = \prod_{i=1}^{n} P(w_i \mid \text{all the words before } w_i)$$
 
-Read it as a story: how likely is a sentence to start with "the"? — times — given it started with "the", how likely is "cat" next? — times — given "the cat", how likely is "sat"? In general:
+This step is called the **chain rule**, and it is important to see that it is *not* an approximation — it's just algebra, always exactly true. It rewrites "the probability of a sentence" as "the probability of each next word given everything before it." Which is pleasing, because *predict the next word from what came before* is exactly what we said a language model is.
 
-$$P(w_1 w_2 \cdots w_n) = \prod_{i=1}^{n} P(w_i \mid w_1 \cdots w_{i-1})$$
+**But there's a killer hiding in it.** Look at the last factor: probability of "sat" given "the cat". To estimate that from data, you find every "the cat" in your corpus and check what followed. Fine — it's a short phrase, it appears a lot. But the chain rule needs this for the *whole* history: by word 15 of a sentence, you'd need to find a specific 14-word phrase in your data. Try googling any exact 15-word sentence from today's news, in quotes: zero results. **Almost every long sequence of words has never been written before.** The counts we need don't exist. The formula is exactly right and completely unusable.
 
-Important: **this is not an approximation.** It's pure algebra — true for any distribution, nothing assumed yet. We've just rewritten "probability of a sentence" as "probability of each next word given its full history" — which is pleasing, because *predict the next word given history* is exactly what we've called a language model since §3.
+### 7.2 Step two: the shortcut (the Markov assumption)
 
-**So where's the problem?** In the last factor's condition. To estimate $P(\text{sat} \mid \text{the cat})$ from data, you need to find "the cat" many times in your corpus and check what followed. Fine for a 2-word history. But the chain rule demands this for the *full* history — and by word 15 the condition is a 14-word phrase. Try this: google any exact 15-word sentence from today's newspaper, in quotes. Zero results. Nearly every long word sequence in existence has **never been written before** — so the counts we'd need are 0 out of 0. The exact formula is correct and unusable.
+The fix: **pretend the next word only depends on the last one or two words, and forget everything earlier.** This is the same short-memory trick as Shannon's generators, now used for scoring:
 
-### 7.2 The Markov assumption: the shortcut that makes it possible
+- **Bigram model** (memory = 1 word): $P(\text{sat} \mid \text{the cat}) \approx P(\text{sat} \mid \text{cat})$
+- **Trigram model** (memory = 2 words): condition on the previous two words instead.
 
-The fix is the same amputated memory from §4.4, now stated as an approximation: **pretend the next word depends only on the last $n-1$ words, and forget everything earlier.**
+**What we gain:** short phrases repeat! "the cat" appears twice even in our 9-word corpus. The counts we need suddenly exist. The model becomes buildable.
 
-$$\text{bigram } (n{=}2): \quad P(\text{sat} \mid \text{the cat}) \;\approx\; P(\text{sat} \mid \text{cat})$$
-$$\text{trigram } (n{=}3): \quad P(w_i \mid \text{everything before}) \;\approx\; P(w_i \mid w_{i-2}\, w_{i-1})$$
+**What we lose:** everything outside the memory window. A concrete casualty: in *"The keys to the cabinet **are** on the table"*, the verb must be "are" because of "keys" — three words back. A bigram model, deciding between *are* and *is*, sees only "cabinet" — and confidently picks the wrong verb. This is exactly why Shannon's generated phrases wandered off topic: no memory outside the window. And fixing *this one flaw* — more memory without impossible statistics — is the story of the entire rest of the roadmap: RNNs, LSTMs, attention.
 
-**What we gain:** the conditions are now short — and short phrases, unlike 14-word phrases, occur over and over in any decent corpus. "the cat" appears twice even in our 9-word toy corpus. The statistics we need suddenly exist.
+### 7.3 Step three: training = counting
 
-**What we throw away:** everything beyond the window — long-range grammar, topic, who "she" refers to. Concrete casualty: in *"The keys to the cabinet **are** on the table"*, the verb must agree with "keys", nine characters and three words back. A bigram model chooses between *are/is* seeing only "cabinet" — and confidently prefers the wrong one. It's the "locally fluent, globally lost" behavior we saw in Shannon's word-level samples (§4.4), now with a mechanism attached.
+Where does a number like $P(\text{cat} \mid \text{the})$ come from? Ask the corpus the obvious question: **"out of all the times 'the' appeared, how often was 'cat' the next word?"**
 
-Hold on to this trade: **the entire rest of the roadmap — RNNs, LSTMs, attention — is a series of attempts to widen this window without the statistics falling apart.**
+$$P(\text{cat} \mid \text{the}) = \frac{\text{count}(\text{the cat})}{\text{count}(\text{the})}$$
 
-### 7.3 Training: maximum likelihood = counting
+Before counting, one practical step: wrap every sentence in the start/end markers, like `⟨s⟩ the cat sat ⟨/s⟩`. Now the first word has something before it to be predicted from, and the model can learn how sentences *end*. This is why the markers exist.
 
-How do we get a number for $P(\text{cat} \mid \text{the})$? Ask the corpus the obvious question: **"of all the times I saw 'the', what fraction were followed by 'cat'?"**
+Let's fully train on the cat corpus — count every adjacent word pair:
 
-$$P_{\text{MLE}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1}\, w_i)}{C(w_{i-1})} \qquad \text{(} C(\cdot) = \text{count in corpus)}$$
-
-Two practical details first. This is where the boundary markers from §3.1 earn their keep: every sentence is processed as `⟨s⟩ the cat sat ⟨/s⟩`, so the first word has a context to be predicted from (`⟨s⟩`), and the model can learn where sentences *end* (`⟨/s⟩`). Now train on the cat corpus by hand — count every adjacent pair:
-
-| Bigram | Count | | Context | Count |
-| ------ | ----- | - | ------- | ----- |
+| Word pair | Count | | Single word | Count |
+| --------- | ----- | - | ----------- | ----- |
 | `⟨s⟩` the | 3 | | `⟨s⟩` | 3 |
 | the cat | 2 | | the | 3 |
 | the dog | 1 | | cat | 2 |
@@ -355,82 +357,89 @@ Two practical details first. This is where the boundary markers from §3.1 earn 
 | sat `⟨/s⟩` | 2 | | | |
 | ran `⟨/s⟩` | 1 | | | |
 
-Divide, and the model is trained: $P(\text{cat} \mid \text{the}) = \tfrac{2}{3}$, $P(\text{dog} \mid \text{the}) = \tfrac{1}{3}$, $P(\text{sat} \mid \text{cat}) = \tfrac{1}{2}$, $P(\text{the} \mid \langle s \rangle) = 1$. That's it. **"Training a language model" in 1990 meant: count pairs, divide.** No gradients, no epochs — one pass over the corpus.
+Divide, and the model is trained: $P(\text{cat}\mid\text{the}) = 2/3$, $P(\text{dog}\mid\text{the}) = 1/3$, $P(\text{sat}\mid\text{cat}) = 1/2$, $P(\text{the}\mid ⟨s⟩) = 1$. That's the whole thing. **In 1990, "training a language model" meant: count the pairs, divide.** No gradients, no GPUs, one pass over the data.
 
-Why the fancy name "maximum likelihood"? Because this dividing-counts recipe is provably the table of probabilities that makes your training corpus *as probable as possible* — no other assignment of numbers scores the training data higher. The corpus is the evidence; MLE is the model that fits the evidence most literally. And "most literally" is exactly what goes wrong next.
+(Why is this called "maximum likelihood estimation"? Because you can prove that these divided counts are the probabilities that make your training data as likely as possible — no other numbers fit the data more literally. Keep the phrase "most literally" in mind; it's about to become the problem.)
 
-### 7.4 The zero-count problem — why smoothing exists
+### 7.4 Step four: the fatal flaw, and smoothing
 
-Score a brand-new test sentence with our trained model: **"the dog ran."** Reasonable English — dogs run. Peel and multiply:
+Let's score a brand-new sentence with our freshly trained model: **"the dog ran."** Perfectly good English — dogs run. Multiply through:
 
-$$P = \underbrace{P(\text{the} \mid \langle s \rangle)}_{= 1} \cdot \underbrace{P(\text{dog} \mid \text{the})}_{= 1/3} \cdot \underbrace{P(\text{ran} \mid \text{dog})}_{= \mathbf{0/1 = 0}} \cdot \; \cdots \; = 0$$
+$$P = \underbrace{P(\text{the} \mid ⟨s⟩)}_{1} \times \underbrace{P(\text{dog} \mid \text{the})}_{1/3} \times \underbrace{P(\text{ran} \mid \text{dog})}_{\mathbf{0}} \times \cdots = 0$$
 
-"dog ran" never occurred in training, so the model declares the whole sentence **impossible** — probability exactly 0. Not unlikely: *impossible*. And it poisons everything it touches: the sentence's log-probability is $\log 0 = -\infty$, so cross-entropy and perplexity over the *entire test set* become infinite. One missing pair, total evaluation wipeout — this is the trap we flagged in the §4.3 scoring table, sprung.
+The pair "dog ran" never appeared in our three training sentences. So the model doesn't say the sentence is *unlikely* — it says it is **impossible**. Probability zero. And zero poisons everything: this is the trap from the cross-entropy table earlier — a zero-probability word has *infinite* surprise, so the model's score on the whole test set becomes infinite. One missing word pair wipes out the entire evaluation.
 
-You might hope unseen pairs are rare. The opposite: word frequencies are heavy-tailed (Zipf's law — a few words are very common, most words are very rare), so **the majority of all possible word pairs never occur in any finite corpus**, including countless perfectly grammatical ones. Every real test set will hit them. The model's true crime is *arrogance*: 0 means "I have seen everything, and this cannot happen," when the honest claim is "I haven't seen this yet."
+Could we just hope unseen pairs are rare? No — the opposite is true. In real language, a handful of words ("the", "of", "is") appear constantly, while *most* words are rare (this lopsidedness is called **Zipf's law**). Multiply two mostly-rare word lists together and the conclusion is: **most possible word pairs never appear in any dataset of any size** — including huge numbers of perfectly normal pairs. Every real test text will contain some. Guaranteed.
 
-**Smoothing** is enforced humility: shave a little probability off the pairs you did see, and spread it over the ones you didn't. The classical menu, simplest first:
+The model's real crime is arrogance. Probability 0 means "I have seen everything, and this cannot happen." The honest statement would be "I just haven't seen it yet." **Smoothing** forces the model to be honest: take a little probability away from the pairs you *did* see, and spread it over the pairs you didn't. The classic recipes, simplest first:
 
-- **Laplace (add-one)** — what we'll implement: pretend every possible pair occurred once more than it did. With vocabulary size $V$ (ours: the, cat, dog, sat, ran, `⟨/s⟩` → $V = 6$):
+- **Add-one smoothing (Laplace)** — what we'll implement. Pretend every possible pair appeared once more than it did. With a vocabulary of $V$ possible next words (ours is 6: the, cat, dog, sat, ran, `⟨/s⟩`):
 
-  $$P_{\text{Lap}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1} w_i) + 1}{C(w_{i-1}) + V}$$
+  $$P(\text{ran} \mid \text{dog}) = \frac{\text{count}(\text{dog ran}) + 1}{\text{count}(\text{dog}) + V} = \frac{0+1}{1+6} = \frac{1}{7}$$
 
-  Now $P(\text{ran} \mid \text{dog}) = \frac{0+1}{1+6} = \tfrac{1}{7}$ — small, but not zero. "The dog ran" is unlikely, not impossible. Fixed. But watch the cost: $P(\text{sat} \mid \text{dog})$ fell from $1$ to $\frac{1+1}{1+6} = \tfrac{2}{7}$. To fund the unseen, add-one taxed a *seen* event from certainty down to 29% — and with a realistic vocabulary ($V$ in the tens of thousands) the tax gets far worse. (Add-$k$ with $k < 1$ is the gentler version.)
-- **Interpolation:** don't trust one estimate — blend them. Mix trigram, bigram, and unigram probabilities with weights: even if "dog ran" was never seen, "ran" on its own was.
-- **Backoff:** use the longest context you've actually seen: trigram if available, else drop to bigram, else to unigram. In plain terms: *if you've never seen the pair, judge the word on its own reputation.*
-- **Kneser-Ney** — the classical state of the art: subtract a fixed discount from every count, and when backing off, rank words not by raw frequency but by **how many different contexts** they follow. The classic illustration: "Francisco" is a frequent word, but nearly every occurrence follows "San" — so in a *fresh* context it's a terrible guess, and Kneser-Ney knows it. We'll meet it properly later in the roadmap.
+  Now "the dog ran" is *unlikely* instead of *impossible*. Fixed! But see the price: $P(\text{sat}\mid\text{dog})$, which used to be 1 (we saw "dog sat" every time "dog" appeared), fell to $\frac{1+1}{1+6} = 2/7$ — from 100% down to 29%. Funding the unseen taxed the seen, heavily. With a real vocabulary of tens of thousands of words, add-one taxes far too much — it's the crude first tool, not the good one.
+- **Interpolation:** don't rely on one estimate — blend big and small contexts. Even if "dog ran" was never seen, "ran" by itself was; mix the two estimates with weights.
+- **Backoff:** use the longest context you've actually seen; if the pair is unseen, fall back and *judge the word on its own reputation*.
+- **Kneser-Ney** — the classic gold standard. Its cleverest idea: when falling back, don't ask "how common is this word?" but "**how many different contexts** has this word followed?" Example: "Francisco" is a common word, but it appears almost only after "San" — so in a fresh, new context it's a terrible guess. Plain frequency can't see that; Kneser-Ney can. (We'll implement it later in the roadmap.)
 
-The insight worth a pull-quote in your article: **smoothing is generalization.** A language model's real job is assigning sane probabilities to text it has *never seen*. N-grams generalize by crudely adjusting counts; neural models will do it by learning that "cat" and "dog" are similar, so evidence about one transfers to the other. Same problem — better machinery arrives on Day 4.
+One sentence worth underlining: **smoothing is generalization** — the model's first-ever attempt to handle text it has never seen. N-grams generalize crudely, by adjusting counts. Neural models will do it beautifully, by learning that "cat" and "dog" are similar, so what you learn about one transfers to the other. Same problem; better machinery comes on Day 4.
 
-### 7.5 Perplexity: the scorecard
+### 7.5 Step five: perplexity, the scorecard
 
-The model trains (7.3), survives unseen pairs (7.4) — now grade it. The grade we already own: **cross-entropy (§4.3)** — the model's average surprise, in bits per word, on held-out text it never trained on:
+The model is trained and patched. Now: **is it any good?** In one phrase, perplexity measures **how confused the model is** when reading real text it has never seen. Confident model → low perplexity. Confused model → high perplexity. **Lower is better.**
 
-$$H = -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{context}_i) \quad \text{(bits per word)}$$
+Here is how it's computed. First, walk the model through test text and measure its average surprise per word — for each word, ask "how likely did you think that was?", convert to surprise, average. (This is the cross-entropy from earlier — the guessing game score, in bits per word):
 
-(Held-out is non-negotiable: scoring the model on its own training text is letting the student grade their own exam — our toy model above would look perfect on "the cat sat" and fall over on "the dog ran".)
+$$H = -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{previous words})$$
 
-**Perplexity** is that same number, made human-readable. Bits are logarithms; exponentiate to turn them back into a *count of options*:
+One rule is non-negotiable: the test text must be text the model **never saw during training**. Scoring the model on its own training data is letting a student grade their own exam — our toy model looks perfect on "the cat sat" and falls on its face on "the dog ran."
 
-$$\text{PPL} = 2^{H} = P_{\text{model}}(w_1 \cdots w_N)^{-1/N}$$
+Then, perplexity is that average surprise converted back into a plain count:
 
-**Plain-words meaning:** perplexity is the model's **effective branching factor** — "at each word, the model is as confused as if it were choosing uniformly among PPL equally likely options." In the guessing-game language of §4.2: $H$ is questions per word, and $\text{PPL} = 2^H$ is the size of the candidate pool those questions have to whittle down.
+$$\text{Perplexity} = 2^{H}$$
 
-Worked, from numbers we already have: the §4.3 scoring table gave a cross-entropy of 2 bits/word on `⟨s⟩ the cat sat ⟨/s⟩` — so $\text{PPL} = 2^2 = 4$: that model navigates the sentence as if picking among 4 options per word. Sanity checks: a model that knows nothing (uniform over $V$ words) has $\text{PPL} = V$ exactly; a perfect oracle has $\text{PPL} = 1$; **lower is better**.
+Why convert? Because "the model averages 2 bits of surprise per word" is hard to feel, while its conversion is easy to feel:
 
-Reference points for calibration: 1990s trigram models on Penn Treebank sat around PPL ~140; modern LLMs reach the single digits to low tens (only comparable on the same corpus and tokenization). Sixty years of progress — Shannon's staircase (§4.2), the n-gram era, the entire neural age — plots as one descending curve of this single number. Next, we compute our own point on it.
+> **A perplexity of K means: at every word, the model is as unsure as if it were choosing blindly among K equally likely words.**
 
-## 8. Limitations of n-gram models → the road ahead
+- Our example table earlier scored 2 bits per word on "the cat sat" → perplexity $2^2 = 4$. Reading that sentence, the model felt like it was picking from 4 options at each step.
+- Perplexity 100 = as lost as rolling a 100-sided die for every word.
+- A model that knows nothing (all $V$ words equally likely, always) has perplexity exactly $V$ — for a 50,000-word vocabulary, perplexity 50,000.
+- A perfect oracle that always knows the next word has perplexity 1.
 
-1. **Sparsity / no generalization.** "The cat sat" in training tells the model _nothing_ about "the dog sat" — words are atomic symbols with no notion of similarity. → **Embeddings** (Days 4–6) make similar words share statistical strength.
-2. **Fixed, tiny context.** The Markov window can't capture long-range dependencies, and the count table grows exponentially ($V^n$) with window size. → **RNNs/LSTMs** (Days 7–8) compress unbounded history into a state vector; **attention/Transformers** (Days 10–18) let every word look at every other word directly.
-3. **No semantics.** N-grams model _co-occurrence_, not meaning — fluent locally, incoherent globally. → the entire neural era.
+So when someone says "model A has perplexity 100 and model B has 50," you can now translate: model B has genuinely *halved* the field of candidates it hesitates between. For calibration: good trigram models in the 1990s scored around 140 on a standard benchmark; today's LLMs score in the single digits to low tens on comparable text. From Shannon's staircase to the n-gram era to GPT — sixty-plus years of progress is one number going down. Next, we'll compute our own.
 
-But note what _doesn't_ change after Day 1: the definition of the LM, the chain-rule factorization, the cross-entropy objective, and perplexity. We are upgrading the estimator of $P(w_i \mid \text{context})$, never the problem statement.
+## 8. What n-grams can't do → the road ahead
 
-## 9. Glossary (only what Day 1 uses)
+1. **No generalization.** Seeing "the cat sat" in training teaches the model *nothing* about "the dog sat" — to an n-gram, "cat" and "dog" are unrelated symbols. → **Embeddings** (Days 4–6) fix this by letting similar words share what the model learns.
+2. **Tiny, fixed memory.** The window can't see "keys" three words back, and making the window bigger explodes the count table exponentially. → **RNNs/LSTMs** (Days 7–8) compress unlimited history into a running summary; **attention/Transformers** (Days 10–18) let every word look directly at every other word.
+3. **No meaning.** N-grams know which words *appear together*, not what they mean — fluent up close, lost at a distance. → the entire neural era.
 
-| Term                  | Definition                                                                                                  |
-| --------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **Corpus**            | A body of real text used for counting/training (plural: corpora). E.g., the Brown Corpus (~1M words, 1961). |
-| **Token**             | A unit of text after splitting — here, a word; in modern LLMs, a subword.                                   |
-| **N-gram**            | A contiguous sequence of n tokens. "the cat" is a bigram.                                                   |
-| **Language model**    | A function assigning probability to a word sequence / predicting the next-word distribution.                |
-| **Entropy**           | Average surprise of a source, in bits: $-\sum p \log_2 p$.                                                  |
-| **Cross-entropy**     | Average surprise of _our model_ on real data; the training loss of every LM since.                          |
-| **Perplexity**        | $2^{\text{cross-entropy}}$; effective number of equally likely next-word choices. Lower is better.          |
-| **Smoothing**         | Redistributing probability mass to unseen events so they don't get probability 0.                           |
-| **Markov assumption** | Next word depends only on the previous $n-1$ words.                                                         |
+But notice what does **not** change after today: the definition of a language model, the peel-one-word-at-a-time chain rule, average surprise (cross-entropy) as the training goal, and perplexity as the score. Every later model upgrades *the guesser* — never *the game*.
 
-_(Embeddings, neural networks, transformers, parsing, etc. are deliberately excluded — each gets its own day in this roadmap.)_
+## 9. Glossary (only what today uses)
+
+| Term | Plain meaning |
+| ---- | ------------- |
+| **Corpus** | A body of real text used for counting/training (plural: corpora). |
+| **Token** | One unit of text after splitting — here, a word. |
+| **N-gram** | A run of n words in a row. "the cat" is a bigram (n=2). |
+| **Language model** | A machine that says how likely each next word is, given the words so far. |
+| **Entropy** | How unpredictable a source is: the average number of yes/no questions per symbol. |
+| **Cross-entropy** | How surprised *your model* is by real text, on average. Always ≥ entropy; the gap is your model's wrongness. |
+| **Perplexity** | How confused the model is: "choosing among K equally likely words." $2^{\text{cross-entropy}}$. Lower = better. |
+| **Smoothing** | Moving a little probability from seen word pairs to unseen ones, so nothing gets probability 0. |
+| **Markov assumption** | The pretense that only the last n−1 words matter. |
+
+*(Embeddings, neural networks, transformers, etc. are deliberately left out — each gets its own day.)*
 
 ## 10. References
 
-1. Shannon, C. E. (1948). _A Mathematical Theory of Communication._ Bell System Technical Journal, 27. — information, entropy, n-th order approximations of English. (See also Shannon 1951, _Prediction and Entropy of Printed English_.)
-2. Church, K. & Mercer, R. (1993). _Introduction to the Special Issue on Computational Linguistics Using Large Corpora._ Computational Linguistics, 19(1). — the empiricist turn.
-3. Jelinek, F. (1997). _Statistical Methods for Speech Recognition._ MIT Press. — noisy channel, HMMs, LMs in production.
-4. Jurafsky, D. & Martin, J. H. _Speech and Language Processing_ (3rd ed. draft), Ch. 3 "N-gram Language Models" — the canonical textbook treatment; free online.
+1. Shannon, C. E. (1948). *A Mathematical Theory of Communication.* Bell System Technical Journal. — surprise, entropy, and the letter-guessing generators. (Also Shannon 1951, *Prediction and Entropy of Printed English* — the hangman experiment.)
+2. Church, K. & Mercer, R. (1993). *Introduction to the Special Issue on Computational Linguistics Using Large Corpora.* Computational Linguistics 19(1). — the field switches sides.
+3. Jelinek, F. (1997). *Statistical Methods for Speech Recognition.* MIT Press. — the two-part recipe and HMMs, in production.
+4. Jurafsky, D. & Martin, J. H. *Speech and Language Processing* (3rd ed. draft), Chapter 3 "N-gram Language Models" — the standard textbook chapter; free online.
 
 ---
 
-**Next:** build the bigram/trigram model with Laplace smoothing, train on a real corpus, and watch every section above turn into a line of code — the Markov assumption becomes a count dictionary, the zero-count problem becomes a `KeyError`, and perplexity becomes three lines of NumPy.
+**Next:** we build it. A bigram/trigram model with add-one smoothing, trained on a real corpus — where the counting table becomes a Python dictionary, the zero-count problem becomes a real crash, and perplexity becomes three lines of NumPy.
