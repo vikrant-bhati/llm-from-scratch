@@ -38,6 +38,28 @@ A **language model (LM)** is just this ability, made explicit:
 
 That one sentence is the entire field. Everything else — n-grams, HMMs, RNNs, Transformers — is a different answer to _"how do we represent 'the words so far'?"_
 
+### 3.1 Our two running examples
+
+Every worked number in the rest of this document comes from one of two toy setups, defined once here so no example ever appears out of nowhere:
+
+**The weather source** — used for the information-theory ideas (entropy, cross-entropy). A city where each day's weather is drawn with fixed probabilities:
+
+| Outcome | sun | rain | snow | hail |
+| ------- | --- | ---- | ---- | ---- |
+| Probability | $\tfrac{1}{2}$ | $\tfrac{1}{4}$ | $\tfrac{1}{8}$ | $\tfrac{1}{8}$ |
+
+**The cat corpus** — used for everything involving text: training, generation, and evaluation. Our complete "training dataset" is three sentences:
+
+```text
+the cat sat
+the cat ran
+the dog sat
+```
+
+Nine words total, five distinct words (the, cat, dog, sat, ran). It is absurdly small **on purpose**: every count, probability, and failure mode in §4–§7 can be verified in your head against these three lines. When we later swap in a real corpus (Brown, WikiText), only the size changes — never the machinery.
+
+One notation note used throughout: sentences get padded with boundary markers, written `⟨s⟩` (sentence start) and `⟨/s⟩` (sentence end), so "the cat sat" is processed as `⟨s⟩ the cat sat ⟨/s⟩`. Why they exist becomes clear in §7.3.
+
 ## 4. Shannon (1948): information, entropy, and approximating English
 
 Claude Shannon's _A Mathematical Theory of Communication_ (Bell System Technical Journal, 1948) was about transmitting messages over noisy channels, but it created the mathematical vocabulary of language modeling.
@@ -70,7 +92,7 @@ $$H = \sum_x p(x) \log_2 \frac{1}{p(x)} = -\sum_x p(x)\log_2 p(x)$$
 
 Entropy measures how unpredictable a source is, in bits per symbol. A fair coin: $H = 1$ bit. A two-headed coin: $H = 0$. English text: Shannon estimated roughly ~1 bit per letter — far below the $\log_2 27 \approx 4.75$ bits of random letters, which is a _measurement_ of how redundant and predictable language is.
 
-**Worked example — same outcomes, different predictability.** A city's weather has four outcomes: sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$. Each term of the sum is (probability) × (that outcome's self-information):
+**Worked example — same outcomes, different predictability.** Take our weather source (§3.1): sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$. Each term of the sum is (probability) × (that outcome's self-information):
 
 $$H = \tfrac{1}{2}(1) + \tfrac{1}{4}(2) + \tfrac{1}{8}(3) + \tfrac{1}{8}(3) = 1.75 \text{ bits}$$
 
@@ -120,7 +142,7 @@ In §4.2's guessing game there was a hidden assumption: you knew the true probab
 
 But a model's beliefs are never perfect. **Cross-entropy is the average number of questions you need when reality deals the outcomes, but your question strategy is built from *your model's* beliefs.** Wrong beliefs → you ask about the wrong things first → you waste questions. That's the entire concept.
 
-**Same weather, wrong model.** Reality (from §4.2): sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$ — entropy 1.75 questions/day. Now suppose your model believes the *exact reverse*: hail $\tfrac{1}{2}$, snow $\tfrac{1}{4}$, rain $\tfrac{1}{8}$, sun $\tfrac{1}{8}$. Trusting it, you ask "hail?" first, then "snow?", then "rain?":
+**Same weather, wrong model.** Reality (our weather source, §3.1): sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$ — entropy 1.75 questions/day. Now suppose your model believes the *exact reverse*: hail $\tfrac{1}{2}$, snow $\tfrac{1}{4}$, rain $\tfrac{1}{8}$, sun $\tfrac{1}{8}$. Trusting it, you ask "hail?" first, then "snow?", then "rain?":
 
 | Day's actual weather | How often (truth) | Your questions | Cost |
 | -------------------- | ----------------- | -------------- | ---- |
@@ -151,14 +173,14 @@ $$\text{cross-entropy} = \underbrace{\text{entropy}}_{\text{how unpredictable re
 
 so cross-entropy $\geq$ entropy, with equality only for a perfect model. Training any language model — bigram counter or GPT — is nothing but shrinking that second term; the first is a fixed property of language. One-line version: **entropy is how many questions the world costs; cross-entropy is how many questions the world costs *you, with your beliefs* — and the gap is exactly how wrong your beliefs are.**
 
-**The same computation on language** — this is exactly what we'll code in §7. A trained bigram model reads the test sentence `<s> the cat sat </s>`. At each step reality reveals the true next word, and we look up the probability the model *had assigned* to it:
+**The same computation on language** — this is exactly what we'll code in §7. A bigram model reads the test sentence `⟨s⟩ the cat sat ⟨/s⟩` (the first sentence of our cat corpus, §3.1). At each step reality reveals the true next word, and we look up the probability the model *had assigned* to it. (The probabilities below belong to a model trained on some *other, larger* corpus — chosen as round numbers so the arithmetic is clean; in §7.3 we'll train a model on the cat corpus itself and get its real numbers.)
 
 | Context | True next word | $P_{\text{model}}$ | Surprise $-\log_2 P$ |
 | ------- | -------------- | ------------------ | -------------------- |
-| `<s>` | the | 0.25 | 2 bits |
+| `⟨s⟩` | the | 0.25 | 2 bits |
 | the | cat | 0.125 | 3 bits |
 | cat | sat | 0.5 | 1 bit |
-| sat | `</s>` | 0.25 | 2 bits |
+| sat | `⟨/s⟩` | 0.25 | 2 bits |
 
 Cross-entropy = the average of the surprise column = $\frac{2+3+1+2}{4} = 2$ bits/word. Step 3 is the model's best moment (after "cat" it strongly expected "sat" — barely surprised); step 2 its worst. A better model is simply one that puts higher probability on the words that actually occur, paying fewer bits per word. And spot the trap: had the model assigned "sat" probability **0**, that row would cost $\infty$ bits and no other row could compensate — hold that thought for smoothing (§7.4).
 
@@ -185,7 +207,7 @@ Each row remembers one symbol more than the last, and the output gets visibly mo
 - **This is §4.2's staircase, run in reverse.** Same models, two modes: point them at existing text and they *score* it (the staircase of entropy estimates); let them roll dice and they *generate*. Better scorer ⇔ better writer — one competence, two directions. That equivalence still holds: an LLM's perplexity and the quality of its generations rise and fall together.
 - **Fluency is local; meaning is not.** The word-level samples read fine within any 3-word window yet drift globally — because the source *has no memory beyond its window*. Every failure of n-gram models (§8) is this row of the table, and every architecture after it (RNNs, attention) is an attempt to extend the window.
 
-**Do it yourself at word level.** Take a three-sentence corpus: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. Training = counting what follows each word:
+**Do it yourself at word level.** Take the cat corpus (§3.1). Training = counting what follows each word:
 
 - after `the`: cat $\tfrac{2}{3}$, dog $\tfrac{1}{3}$
 - after `cat`: sat $\tfrac{1}{2}$, ran $\tfrac{1}{2}$
@@ -285,7 +307,7 @@ Viterbi is just the brute-force table above, kept pruned: at each time step, for
 
 Everything so far becomes one buildable machine here. The story of this section, in one paragraph: we want the probability of a whole sentence (7.1) — but computed exactly, it needs statistics nobody can collect, so we take the Markov shortcut (7.2) — which makes training literally just counting (7.3) — but counting has a fatal flaw on unseen word pairs (7.4) — and once that's patched, we grade the machine with perplexity (7.5).
 
-One running example throughout, the mini-corpus from §4.4: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. We will train on it by hand, break the model with a real sentence, fix it, and score it.
+One running example throughout: the cat corpus (§3.1) — *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. We will train on it by hand, break the model with a new sentence, fix it, and score it.
 
 ### 7.1 Chain rule: the exact decomposition
 
@@ -320,20 +342,20 @@ How do we get a number for $P(\text{cat} \mid \text{the})$? Ask the corpus the o
 
 $$P_{\text{MLE}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1}\, w_i)}{C(w_{i-1})} \qquad \text{(} C(\cdot) = \text{count in corpus)}$$
 
-Two practical details first. We pad every sentence with boundary markers — `<s> the cat sat </s>` — so the first word has a context to be predicted from, and the model can learn where sentences *end*. Now train on our corpus by hand — count every adjacent pair:
+Two practical details first. This is where the boundary markers from §3.1 earn their keep: every sentence is processed as `⟨s⟩ the cat sat ⟨/s⟩`, so the first word has a context to be predicted from (`⟨s⟩`), and the model can learn where sentences *end* (`⟨/s⟩`). Now train on the cat corpus by hand — count every adjacent pair:
 
 | Bigram | Count | | Context | Count |
 | ------ | ----- | - | ------- | ----- |
-| `<s>` the | 3 | | `<s>` | 3 |
+| `⟨s⟩` the | 3 | | `⟨s⟩` | 3 |
 | the cat | 2 | | the | 3 |
 | the dog | 1 | | cat | 2 |
 | cat sat | 1 | | dog | 1 |
 | cat ran | 1 | | sat | 2 |
 | dog sat | 1 | | ran | 1 |
-| sat `</s>` | 2 | | | |
-| ran `</s>` | 1 | | | |
+| sat `⟨/s⟩` | 2 | | | |
+| ran `⟨/s⟩` | 1 | | | |
 
-Divide, and the model is trained: $P(\text{cat} \mid \text{the}) = \tfrac{2}{3}$, $P(\text{dog} \mid \text{the}) = \tfrac{1}{3}$, $P(\text{sat} \mid \text{cat}) = \tfrac{1}{2}$, $P(\text{the} \mid \texttt{<s>}) = 1$. That's it. **"Training a language model" in 1990 meant: count pairs, divide.** No gradients, no epochs — one pass over the corpus.
+Divide, and the model is trained: $P(\text{cat} \mid \text{the}) = \tfrac{2}{3}$, $P(\text{dog} \mid \text{the}) = \tfrac{1}{3}$, $P(\text{sat} \mid \text{cat}) = \tfrac{1}{2}$, $P(\text{the} \mid \langle s \rangle) = 1$. That's it. **"Training a language model" in 1990 meant: count pairs, divide.** No gradients, no epochs — one pass over the corpus.
 
 Why the fancy name "maximum likelihood"? Because this dividing-counts recipe is provably the table of probabilities that makes your training corpus *as probable as possible* — no other assignment of numbers scores the training data higher. The corpus is the evidence; MLE is the model that fits the evidence most literally. And "most literally" is exactly what goes wrong next.
 
@@ -341,7 +363,7 @@ Why the fancy name "maximum likelihood"? Because this dividing-counts recipe is 
 
 Score a brand-new test sentence with our trained model: **"the dog ran."** Reasonable English — dogs run. Peel and multiply:
 
-$$P = \underbrace{P(\text{the} \mid \texttt{<s>})}_{= 1} \cdot \underbrace{P(\text{dog} \mid \text{the})}_{= 1/3} \cdot \underbrace{P(\text{ran} \mid \text{dog})}_{= \mathbf{0/1 = 0}} \cdot \; \cdots \; = 0$$
+$$P = \underbrace{P(\text{the} \mid \langle s \rangle)}_{= 1} \cdot \underbrace{P(\text{dog} \mid \text{the})}_{= 1/3} \cdot \underbrace{P(\text{ran} \mid \text{dog})}_{= \mathbf{0/1 = 0}} \cdot \; \cdots \; = 0$$
 
 "dog ran" never occurred in training, so the model declares the whole sentence **impossible** — probability exactly 0. Not unlikely: *impossible*. And it poisons everything it touches: the sentence's log-probability is $\log 0 = -\infty$, so cross-entropy and perplexity over the *entire test set* become infinite. One missing pair, total evaluation wipeout — this is the trap we flagged in the §4.3 scoring table, sprung.
 
@@ -349,7 +371,7 @@ You might hope unseen pairs are rare. The opposite: word frequencies are heavy-t
 
 **Smoothing** is enforced humility: shave a little probability off the pairs you did see, and spread it over the ones you didn't. The classical menu, simplest first:
 
-- **Laplace (add-one)** — what we'll implement: pretend every possible pair occurred once more than it did. With vocabulary size $V$ (ours: the, cat, dog, sat, ran, `</s>` → $V = 6$):
+- **Laplace (add-one)** — what we'll implement: pretend every possible pair occurred once more than it did. With vocabulary size $V$ (ours: the, cat, dog, sat, ran, `⟨/s⟩` → $V = 6$):
 
   $$P_{\text{Lap}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1} w_i) + 1}{C(w_{i-1}) + V}$$
 
@@ -374,7 +396,7 @@ $$\text{PPL} = 2^{H} = P_{\text{model}}(w_1 \cdots w_N)^{-1/N}$$
 
 **Plain-words meaning:** perplexity is the model's **effective branching factor** — "at each word, the model is as confused as if it were choosing uniformly among PPL equally likely options." In the guessing-game language of §4.2: $H$ is questions per word, and $\text{PPL} = 2^H$ is the size of the candidate pool those questions have to whittle down.
 
-Worked, from numbers we already have: the §4.3 scoring table gave a cross-entropy of 2 bits/word on `<s> the cat sat </s>` — so $\text{PPL} = 2^2 = 4$: that model navigates the sentence as if picking among 4 options per word. Sanity checks: a model that knows nothing (uniform over $V$ words) has $\text{PPL} = V$ exactly; a perfect oracle has $\text{PPL} = 1$; **lower is better**.
+Worked, from numbers we already have: the §4.3 scoring table gave a cross-entropy of 2 bits/word on `⟨s⟩ the cat sat ⟨/s⟩` — so $\text{PPL} = 2^2 = 4$: that model navigates the sentence as if picking among 4 options per word. Sanity checks: a model that knows nothing (uniform over $V$ words) has $\text{PPL} = V$ exactly; a perfect oracle has $\text{PPL} = 1$; **lower is better**.
 
 Reference points for calibration: 1990s trigram models on Penn Treebank sat around PPL ~140; modern LLMs reach the single digits to low tens (only comparable on the same corpus and tokenization). Sixty years of progress — Shannon's staircase (§4.2), the n-gram era, the entire neural age — plots as one descending curve of this single number. Next, we compute our own point on it.
 
