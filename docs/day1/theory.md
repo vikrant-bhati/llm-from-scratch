@@ -222,9 +222,64 @@ $$\hat{W} = \arg\max_W P(W \mid A) = \arg\max_W \underbrace{P(A \mid W)}_{\text{
 
 This decomposition — a task-specific likelihood times a reusable prior over language — became the template for statistical machine translation and beyond. The LM is the reusable part, which is why it became the center of the field.
 
-### 6.2 Hidden Markov Models (brief)
+### 6.2 Hidden Markov Models
 
-The acoustic side used **HMMs**: hidden states (phonemes/words) with a **transition matrix** (probabilities between hidden states) and an **emission matrix** (probability each state produces the observed acoustic features). Efficient algorithms (Viterbi, forward-backward) find the best hidden sequence. HMMs get a full treatment later in the roadmap; here they matter as the vehicle that proved statistical methods on a real, hard, commercially important task.
+**The problem HMMs solve.** A Markov source (§4.4) is fine when you can *see* the sequence you're modeling. But in speech recognition you never observe the words — you observe sound waves. The sequence you care about (words) is **hidden**; the sequence you have (acoustic measurements) is a noisy, ambiguous *consequence* of it. A **Hidden Markov Model** is exactly this two-layer story:
+
+1. **A hidden layer** walks from state to state like an ordinary Markov chain — you never see it.
+2. **A visible layer**: at each step, the current hidden state *emits* an observation with some probability — this is all you ever see.
+
+The machine's job: given only the observations, reason backwards to the hidden path that best explains them.
+
+**A hand-sized example.** You work in a windowless office and can't see the weather (hidden states: `sun`, `rain`). All you observe is whether each arriving coworker carries an umbrella (observations: `umbrella`, `none`). Two probability tables define everything:
+
+*Transition matrix* — how the hidden world moves (weather has momentum):
+
+| from \ to | sun | rain |
+| --------- | --- | ---- |
+| **sun** | 0.8 | 0.2 |
+| **rain** | 0.4 | 0.6 |
+
+*Emission matrix* — how the hidden state leaks into what you can see:
+
+| state \ emits | umbrella | none |
+| ------------- | -------- | ---- |
+| **sun** | 0.2 | 0.8 |
+| **rain** | 0.9 | 0.1 |
+
+(Plus a start distribution: day 1 is sun or rain with probability 0.5 each.)
+
+**Inference, by brute force.** Two coworkers arrive on two mornings, both with umbrellas: observations = (`umbrella`, `umbrella`). What was the weather? Score every possible hidden path as (start × emission × transition × emission):
+
+| Hidden path | Probability | |
+| ----------- | ----------- | - |
+| sun → sun | $0.5 \cdot 0.2 \cdot 0.8 \cdot 0.2$ | $= 0.016$ |
+| sun → rain | $0.5 \cdot 0.2 \cdot 0.2 \cdot 0.9$ | $= 0.018$ |
+| rain → sun | $0.5 \cdot 0.9 \cdot 0.4 \cdot 0.2$ | $= 0.036$ |
+| rain → rain | $0.5 \cdot 0.9 \cdot 0.6 \cdot 0.9$ | $= \mathbf{0.243}$ |
+
+Verdict: rain both days, and it isn't close. Notice *why* it wins: rain explains the umbrellas well (high emissions, 0.9) **and** rain-then-rain is a plausible weather story (transition 0.6). A hidden path must satisfy both masters — sound like the evidence *and* be a likely story on its own. Keep that sentence; it's about to become speech recognition.
+
+**Why brute force dies, and the three classical algorithms.** With 2 states and 2 steps there were $2^2 = 4$ paths. Real speech: thousands of states, hundreds of time steps — $S^T$ paths, more than atoms in the universe. The reason HMMs conquered the field is that all three natural questions have **dynamic-programming** answers that run in $O(T \cdot S^2)$ — the trick being that paths sharing a state share their future, so you compute each state's best/total score once per time step instead of once per path (these are the three problems of Rabiner's famous 1989 tutorial):
+
+| Question | Algorithm | Used for |
+| -------- | --------- | -------- |
+| How likely are these observations at all? $P(O)$ | **Forward** (sum over paths) | scoring/comparing models |
+| What's the single best hidden path? | **Viterbi** (max over paths) | *decoding* — recognition itself |
+| How do I learn the two matrices without labeled data? | **Baum–Welch** (EM; uses forward–backward) | training |
+
+Viterbi is just the brute-force table above, kept pruned: at each time step, for each state, remember only the best path that reaches it — every extension of a losing path loses, so nothing of value is discarded.
+
+**Now the payoff: this is §6.1's equation as a machine.** Map the pieces onto speech:
+
+- **Hidden states** = the word/phoneme sequence $W$ being spoken
+- **Transitions** = which words plausibly follow which — *this is exactly the n-gram language model $P(W)$* from this article
+- **Emissions** = what sounds each word produces — the acoustic model $P(A \mid W)$
+- **Recognition** = Viterbi decoding: find the hidden word path that both *sounds like the audio* (emissions) and *reads like English* (transitions)
+
+"Recognize speech" beats "wreck a nice beach" not because it sounds different — the emissions nearly tie — but because the transition side (the language model) says the first is a far likelier walk through English. The two-masters structure of the umbrella example *is* the noisy-channel equation, running in real time.
+
+**Where this thread goes.** HMMs ruled speech recognition and sequence labeling (POS tagging, named entities) for three decades — a hidden cause, a Markov walk, and noisy evidence turn out to describe half of NLP. And file away the deeper idea: *a hidden state that summarizes the past and carries it forward one step at a time*. Strip away the probability tables, make that state a learned vector, and you have the RNN — Day 7. The architecture of the future is hiding inside 1980s speech recognition.
 
 ## 7. The math of n-gram language models
 
