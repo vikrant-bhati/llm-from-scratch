@@ -50,6 +50,18 @@ $$I(x) = \log_2 \frac{1}{p(x)} = -\log_2 p(x) \quad \text{(bits)}$$
 
 Intuition: a certain event ($p=1$) tells you nothing ($I=0$); a rare event is a big surprise and carries many bits. "The sun rose today" is low-information; "it snowed in Death Valley" is high-information.
 
+**Worked numbers** (all from $I = \log_2 \frac{1}{p}$):
+
+| Event | $p$ | Self-information |
+| ----- | --- | ---------------- |
+| something certain | $1$ | $0$ bits |
+| fair coin lands heads | $1/2$ | $1$ bit |
+| a die rolls 5 | $1/6$ | $\approx 2.6$ bits |
+| a specific card drawn from a deck | $1/52$ | $\approx 5.7$ bits |
+| winning a 1-in-a-million lottery | $10^{-6}$ | $\approx 19.9$ bits |
+
+Now in language: after the letter `q`, English produces `u` with probability $\approx 0.97$ — seeing it costs $\log_2\frac{1}{0.97} \approx 0.04$ bits, almost no news at all. Seeing a rare word like *aardvark* ($p \approx 1/100{,}000$) costs $\approx 16.6$ bits. **Predictable symbols are cheap, surprising ones are expensive** — and language is mostly cheap symbols, which is why it's compressible and predictable.
+
 ### 4.2 Entropy: the average surprise of a source
 
 **Entropy** is the _expected_ self-information over all events the source can produce:
@@ -57,6 +69,14 @@ Intuition: a certain event ($p=1$) tells you nothing ($I=0$); a rare event is a 
 $$H = \sum_x p(x) \log_2 \frac{1}{p(x)} = -\sum_x p(x)\log_2 p(x)$$
 
 Entropy measures how unpredictable a source is, in bits per symbol. A fair coin: $H = 1$ bit. A two-headed coin: $H = 0$. English text: Shannon estimated roughly ~1 bit per letter — far below the $\log_2 27 \approx 4.75$ bits of random letters, which is a _measurement_ of how redundant and predictable language is.
+
+**Worked example — same outcomes, different predictability.** A city's weather has four outcomes: sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$. Each term of the sum is (probability) × (that outcome's self-information):
+
+$$H = \tfrac{1}{2}(1) + \tfrac{1}{4}(2) + \tfrac{1}{8}(3) + \tfrac{1}{8}(3) = 1.75 \text{ bits}$$
+
+Sun is a cheap 1-bit event that happens half the time; hail is an expensive 3-bit surprise but rare — entropy is the average bill. Compare: if all four outcomes were equally likely, $H = \log_2 4 = 2$ bits, the maximum possible. Skewing the distribution toward predictable outcomes dropped the entropy from 2 to 1.75 **with the exact same set of outcomes**. Same effect on a biased coin: fair coin $H = 1$ bit, but a 90/10 coin gives $H = 0.9\log_2\frac{1}{0.9} + 0.1\log_2\frac{1}{0.1} \approx 0.47$ bits — still two outcomes, half the uncertainty.
+
+That's what Shannon's ~1 bit/letter for English means: out of a possible 4.75 bits, the rules and habits of English eliminate ~80% of the uncertainty before you even see the next letter.
 
 One caution: entropy is a property of **language itself** — the irreducible unpredictability no model can beat. To score a *model*, we need its sibling.
 
@@ -76,6 +96,17 @@ $$\text{cross-entropy} = \underbrace{\text{entropy}}_{\text{how unpredictable re
 
 so cross-entropy $\geq$ entropy, with equality only for a perfect model. Training any language model — bigram counter or GPT — is nothing but shrinking that second term; the first is a fixed property of language. One-line version: **entropy is how surprising the world is; cross-entropy is how surprising the world is *to your model*.**
 
+**The same computation on language** — this is exactly what we'll code in §7. A trained bigram model reads the test sentence `<s> the cat sat </s>`. At each step reality reveals the true next word, and we look up the probability the model *had assigned* to it:
+
+| Context | True next word | $P_{\text{model}}$ | Surprise $-\log_2 P$ |
+| ------- | -------------- | ------------------ | -------------------- |
+| `<s>` | the | 0.25 | 2 bits |
+| the | cat | 0.125 | 3 bits |
+| cat | sat | 0.5 | 1 bit |
+| sat | `</s>` | 0.25 | 2 bits |
+
+Cross-entropy = the average of the surprise column = $\frac{2+3+1+2}{4} = 2$ bits/word. Step 3 is the model's best moment (after "cat" it strongly expected "sat" — barely surprised); step 2 its worst. A better model is simply one that puts higher probability on the words that actually occur, paying fewer bits per word. And spot the trap: had the model assigned "sat" probability **0**, that row would cost $\infty$ bits and no other row could compensate — hold that thought for smoothing (§7.4).
+
 Keep this quantity in mind: **perplexity (§7) is just cross-entropy exponentiated.** If cross-entropy is fuzzy, perplexity will be too.
 
 ### 4.4 Language as a Markov source: the n-th order approximations
@@ -91,6 +122,14 @@ Shannon's key modeling move: treat language as a **stochastic source emitting sy
 | word-level 1st/2nd | previous words               | locally grammatical phrases                   |
 
 Each step up the ladder conditions on **more history** and produces text that looks more like English. This is the founding demo of language modeling — and note that a modern LLM sampling tokens is exactly this experiment with a context of thousands of tokens instead of two letters.
+
+**Do it yourself at word level.** Take a three-sentence corpus: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. Count what follows each word:
+
+- after `the`: cat $\tfrac{2}{3}$, dog $\tfrac{1}{3}$
+- after `cat`: sat $\tfrac{1}{2}$, ran $\tfrac{1}{2}$
+- after `dog`: sat $1$
+
+Now generate: start at `the`, roll a die weighted by those counts, emit the word, repeat from the new word. You might get *"the dog sat"* (never mind that you also might get *"the cat ran"* — both are fluent). This tiny table **is** a 1st-order word approximation, built with nothing but counting — and it's precisely the machinery we formalize in §7 and implement in code. An LLM sampling its next token is this same loop with a vastly bigger table (implicit in its weights) and thousands of words of context instead of one.
 
 ## 5. Church & Mercer (1993): the empiricist manifesto
 
