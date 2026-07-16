@@ -76,7 +76,22 @@ $$H = \tfrac{1}{2}(1) + \tfrac{1}{4}(2) + \tfrac{1}{8}(3) + \tfrac{1}{8}(3) = 1.
 
 Sun is a cheap 1-bit event that happens half the time; hail is an expensive 3-bit surprise but rare — entropy is the average bill. Compare: if all four outcomes were equally likely, $H = \log_2 4 = 2$ bits, the maximum possible. Skewing the distribution toward predictable outcomes dropped the entropy from 2 to 1.75 **with the exact same set of outcomes**. Same effect on a biased coin: fair coin $H = 1$ bit, but a 90/10 coin gives $H = 0.9\log_2\frac{1}{0.9} + 0.1\log_2\frac{1}{0.1} \approx 0.47$ bits — still two outcomes, half the uncertainty.
 
-That's what Shannon's ~1 bit/letter for English means: out of a possible 4.75 bits, the rules and habits of English eliminate ~80% of the uncertainty before you even see the next letter.
+That's what Shannon's ~1 bit/letter for English means: out of a possible 4.75 bits, the rules and habits of English eliminate ~80% of the uncertainty before you even see the next letter. (A useful physical reading of a "bit": one bit = one perfect yes/no question. Entropy is **the average number of yes/no questions you'd need to guess the source's next symbol**. Gibberish needs ~4.75 questions per letter; English needs ~1, because context — `q` is on the screen, or "the cat sat on the ma" — has already pre-answered most of them.)
+
+**How ~1 bit/letter was actually measured: the staircase of estimates.** Nobody knows the true probability distribution of English, so its entropy can't be computed directly. Shannon's move: compute the entropy of the next letter conditioned on **increasing amounts of context**. Each extra scrap of context can only reduce uncertainty, so the estimates form a descending staircase whose limit is the true entropy:
+
+| Estimate | Conditions on | Bits/letter |
+| -------- | ------------- | ----------- |
+| $F_0$ | nothing (uniform over 27 symbols) | 4.75 |
+| $F_1$ | letter frequencies | 4.14 |
+| $F_2$ | previous 1 letter | 3.56 |
+| $F_3$ | previous 2 letters | 3.3 |
+| word frequencies | whole words | ~2.6 |
+| human reader (1951) | ~100 letters of context | **0.6 – 1.3** |
+
+The staircase is clearly still falling at $F_3$, but count tables couldn't go deeper (context of 10 letters needs $27^{10}$ entries — and this was computed by hand from books). So Shannon swapped the count table for the best available model of English: **a human brain**. In his 1951 follow-up (*Prediction and Entropy of Printed English*), subjects guessed the next letter of a hidden text — with the preceding ~100 letters visible — until correct, and the guess counts (mostly 1, 1, 1, 2, 1, ... with occasional hard spots at new words) convert into the entropy bounds in the last row. The entropy of English was literally measured by humans playing hangman.
+
+Two things to notice, because they run through this whole roadmap. First, each staircase row is a *model* of English, and its number is that model's average surprise — an **upper bound** on the true entropy that tightens as the model improves (this is exactly cross-entropy, defined next in §4.3). Second, the staircase is still being descended *today*: text compressed with a modern LLM reaches ~0.6–0.7 bits per character, hugging the bottom of Shannon's 1951 human range. Uniform → unigram → bigram → trigram → human → GPT is one continuous plot on an axis Shannon drew — and the bigram model we build in §7 sits on a known step of it.
 
 One caution: entropy is a property of **language itself** — the irreducible unpredictability no model can beat. To score a *model*, we need its sibling.
 
