@@ -166,25 +166,32 @@ Keep this quantity in mind: **perplexity (§7) is just cross-entropy exponentiat
 
 ### 4.4 Language as a Markov source: the n-th order approximations
 
-Shannon's key modeling move: treat language as a **stochastic source emitting symbols one at a time, each with a probability that depends on preceding symbols**. He then built a ladder of approximations to English:
+So far the models have only *judged* text — guessing letters, paying bits. Shannon's last demo flips them around: **if a model can assign probabilities to what comes next, it can also *write* — just roll dice according to those probabilities.** This section is where language models stop being scoring functions and start generating.
 
-| Order              | Next symbol depends on       | Sample behavior                               |
+**First, the name.** A **Markov source** is a random text generator with deliberately amputated memory: it emits one symbol at a time, and its choice depends only on the **last $n-1$ symbols** — everything earlier is forgotten. (After A. A. Markov, who in 1913 hand-counted vowel/consonant patterns in Pushkin's *Eugene Onegin* — the first statistical language analysis ever.) An "$n$-th order approximation of English" is a Markov source whose probabilities were **estimated by counting real English text**: tally which symbol follows which context, convert to frequencies, done. Notice that's the first appearance of the modern pipeline — *count a corpus, then sample from the counts* — i.e., **training** and **generation**.
+
+**The experiment.** Shannon built these sources at increasing order and let each one write. Read the samples column top to bottom — this is the founding demo of language modeling:
+
+| Order              | Next symbol depends on       | Generated sample                              |
 | ------------------ | ---------------------------- | --------------------------------------------- |
-| 0th                | nothing (uniform)            | `XFOML RXKHRJFFJUJ` — random junk             |
-| 1st                | letter frequencies only      | `OCRO HLI RGWR` — English-ish letter mix      |
-| 2nd                | previous 1 letter (bigram)   | `ON IE ANTSOUTINYS` — pronounceable fragments |
-| 3rd                | previous 2 letters (trigram) | `IN NO IST LAT WHEY` — almost word-like       |
-| word-level 1st/2nd | previous words               | locally grammatical phrases                   |
+| 0th                | nothing (all 27 equally likely) | `XFOML RXKHRJFFJUJ` — random junk             |
+| 1st                | letter frequencies only      | `OCRO HLI RGWR` — right letter *mix*, no structure |
+| 2nd                | previous 1 letter            | `ON IE ANTSOUTINYS` — pronounceable fragments |
+| 3rd                | previous 2 letters           | `IN NO IST LAT WHEY` — almost word-like       |
+| word-level 1st/2nd | previous word(s)             | locally grammatical phrases that drift off-topic |
 
-Each step up the ladder conditions on **more history** and produces text that looks more like English. This is the founding demo of language modeling — and note that a modern LLM sampling tokens is exactly this experiment with a context of thousands of tokens instead of two letters.
+Each row remembers one symbol more than the last, and the output gets visibly more English-like. Two things to notice:
 
-**Do it yourself at word level.** Take a three-sentence corpus: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. Count what follows each word:
+- **This is §4.2's staircase, run in reverse.** Same models, two modes: point them at existing text and they *score* it (the staircase of entropy estimates); let them roll dice and they *generate*. Better scorer ⇔ better writer — one competence, two directions. That equivalence still holds: an LLM's perplexity and the quality of its generations rise and fall together.
+- **Fluency is local; meaning is not.** The word-level samples read fine within any 3-word window yet drift globally — because the source *has no memory beyond its window*. Every failure of n-gram models (§8) is this row of the table, and every architecture after it (RNNs, attention) is an attempt to extend the window.
+
+**Do it yourself at word level.** Take a three-sentence corpus: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. Training = counting what follows each word:
 
 - after `the`: cat $\tfrac{2}{3}$, dog $\tfrac{1}{3}$
 - after `cat`: sat $\tfrac{1}{2}$, ran $\tfrac{1}{2}$
 - after `dog`: sat $1$
 
-Now generate: start at `the`, roll a die weighted by those counts, emit the word, repeat from the new word. You might get *"the dog sat"* (never mind that you also might get *"the cat ran"* — both are fluent). This tiny table **is** a 1st-order word approximation, built with nothing but counting — and it's precisely the machinery we formalize in §7 and implement in code. An LLM sampling its next token is this same loop with a vastly bigger table (implicit in its weights) and thousands of words of context instead of one.
+Generation = start at `the`, roll a die weighted by the counts, emit the word, move to it, repeat. You might get *"the dog sat"* — or *"the cat ran"*; both are fluent, and the die decides. This tiny table **is** a 1st-order word approximation, built with nothing but counting — precisely the machinery we formalize in §7 and implement in code. And an LLM sampling its reply to you is this same loop with a vastly bigger (implicit) table and thousands of words of context instead of one: Shannon's dice, still rolling.
 
 ## 5. Church & Mercer (1993): the empiricist manifesto
 
