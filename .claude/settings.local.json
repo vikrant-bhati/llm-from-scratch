@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(open *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)"
     ]
   }
 }
