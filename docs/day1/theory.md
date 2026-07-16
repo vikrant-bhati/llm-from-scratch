@@ -283,65 +283,100 @@ Viterbi is just the brute-force table above, kept pruned: at each time step, for
 
 ## 7. The math of n-gram language models
 
-Now the machinery we'll implement.
+Everything so far becomes one buildable machine here. The story of this section, in one paragraph: we want the probability of a whole sentence (7.1) — but computed exactly, it needs statistics nobody can collect, so we take the Markov shortcut (7.2) — which makes training literally just counting (7.3) — but counting has a fatal flaw on unseen word pairs (7.4) — and once that's patched, we grade the machine with perplexity (7.5).
+
+One running example throughout, the mini-corpus from §4.4: *"the cat sat"*, *"the cat ran"*, *"the dog sat"*. We will train on it by hand, break the model with a real sentence, fix it, and score it.
 
 ### 7.1 Chain rule: the exact decomposition
 
-The probability of a sentence $w_1, w_2, \ldots, w_n$ decomposes _exactly_ — no approximation yet:
+A language model must assign a probability to a whole sentence. The chain rule says: **peel off one word at a time, and multiply the probability of each word given everything before it.** For "the cat sat":
 
-$$P(w_1 w_2 \cdots w_n) = P(w_1)\,P(w_2 \mid w_1)\,P(w_3 \mid w_1 w_2)\cdots P(w_n \mid w_1 \cdots w_{n-1}) = \prod_{i=1}^{n} P(w_i \mid w_1^{\,i-1})$$
+$$P(\text{the cat sat}) = P(\text{the}) \cdot P(\text{cat} \mid \text{the}) \cdot P(\text{sat} \mid \text{the cat})$$
 
-Problem: the final factors condition on arbitrarily long histories. Almost every long history occurs zero or one times in any corpus — the counts don't exist.
+Read it as a story: how likely is a sentence to start with "the"? — times — given it started with "the", how likely is "cat" next? — times — given "the cat", how likely is "sat"? In general:
 
-### 7.2 The Markov assumption: what we keep, what we throw away
+$$P(w_1 w_2 \cdots w_n) = \prod_{i=1}^{n} P(w_i \mid w_1 \cdots w_{i-1})$$
 
-The **n-gram assumption**: the next word depends only on the previous $n{-}1$ words.
+Important: **this is not an approximation.** It's pure algebra — true for any distribution, nothing assumed yet. We've just rewritten "probability of a sentence" as "probability of each next word given its full history" — which is pleasing, because *predict the next word given history* is exactly what we've called a language model since §3.
 
-$$\text{bigram } (n{=}2): \quad P(w_i \mid w_1^{\,i-1}) \approx P(w_i \mid w_{i-1})$$
-$$\text{trigram } (n{=}3): \quad P(w_i \mid w_1^{\,i-1}) \approx P(w_i \mid w_{i-2}\, w_{i-1})$$
+**So where's the problem?** In the last factor's condition. To estimate $P(\text{sat} \mid \text{the cat})$ from data, you need to find "the cat" many times in your corpus and check what followed. Fine for a 2-word history. But the chain rule demands this for the *full* history — and by word 15 the condition is a 14-word phrase. Try this: google any exact 15-word sentence from today's newspaper, in quotes. Zero results. Nearly every long word sequence in existence has **never been written before** — so the counts we'd need are 0 out of 0. The exact formula is correct and unusable.
 
-**What this throws away:** everything beyond the window — long-range grammar agreement, topic, discourse, who "she" refers to. In _"The keys to the cabinet **are** on the table"_, a bigram model chooses between _are/is_ seeing only "cabinet" — and prefers the wrong one. This single flaw is the thread that runs through the whole roadmap: RNNs, LSTMs, and attention are all attempts to widen this window without the count table exploding.
+### 7.2 The Markov assumption: the shortcut that makes it possible
 
-### 7.3 Estimation: maximum likelihood = counting
+The fix is the same amputated memory from §4.4, now stated as an approximation: **pretend the next word depends only on the last $n-1$ words, and forget everything earlier.**
 
-Estimate the conditional probabilities from corpus counts:
+$$\text{bigram } (n{=}2): \quad P(\text{sat} \mid \text{the cat}) \;\approx\; P(\text{sat} \mid \text{cat})$$
+$$\text{trigram } (n{=}3): \quad P(w_i \mid \text{everything before}) \;\approx\; P(w_i \mid w_{i-2}\, w_{i-1})$$
 
-$$P_{\text{MLE}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1}\, w_i)}{C(w_{i-1})}$$
+**What we gain:** the conditions are now short — and short phrases, unlike 14-word phrases, occur over and over in any decent corpus. "the cat" appears twice even in our 9-word toy corpus. The statistics we need suddenly exist.
 
-That's the whole training algorithm: count bigrams, divide by unigram counts. (Sentences get padded with boundary markers `<s>` and `</s>` so first/last words have proper contexts.)
+**What we throw away:** everything beyond the window — long-range grammar, topic, who "she" refers to. Concrete casualty: in *"The keys to the cabinet **are** on the table"*, the verb must agree with "keys", nine characters and three words back. A bigram model chooses between *are/is* seeing only "cabinet" — and confidently prefers the wrong one. It's the "locally fluent, globally lost" behavior we saw in Shannon's word-level samples (§4.4), now with a mechanism attached.
+
+Hold on to this trade: **the entire rest of the roadmap — RNNs, LSTMs, attention — is a series of attempts to widen this window without the statistics falling apart.**
+
+### 7.3 Training: maximum likelihood = counting
+
+How do we get a number for $P(\text{cat} \mid \text{the})$? Ask the corpus the obvious question: **"of all the times I saw 'the', what fraction were followed by 'cat'?"**
+
+$$P_{\text{MLE}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1}\, w_i)}{C(w_{i-1})} \qquad \text{(} C(\cdot) = \text{count in corpus)}$$
+
+Two practical details first. We pad every sentence with boundary markers — `<s> the cat sat </s>` — so the first word has a context to be predicted from, and the model can learn where sentences *end*. Now train on our corpus by hand — count every adjacent pair:
+
+| Bigram | Count | | Context | Count |
+| ------ | ----- | - | ------- | ----- |
+| `<s>` the | 3 | | `<s>` | 3 |
+| the cat | 2 | | the | 3 |
+| the dog | 1 | | cat | 2 |
+| cat sat | 1 | | dog | 1 |
+| cat ran | 1 | | sat | 2 |
+| dog sat | 1 | | ran | 1 |
+| sat `</s>` | 2 | | | |
+| ran `</s>` | 1 | | | |
+
+Divide, and the model is trained: $P(\text{cat} \mid \text{the}) = \tfrac{2}{3}$, $P(\text{dog} \mid \text{the}) = \tfrac{1}{3}$, $P(\text{sat} \mid \text{cat}) = \tfrac{1}{2}$, $P(\text{the} \mid \texttt{<s>}) = 1$. That's it. **"Training a language model" in 1990 meant: count pairs, divide.** No gradients, no epochs — one pass over the corpus.
+
+Why the fancy name "maximum likelihood"? Because this dividing-counts recipe is provably the table of probabilities that makes your training corpus *as probable as possible* — no other assignment of numbers scores the training data higher. The corpus is the evidence; MLE is the model that fits the evidence most literally. And "most literally" is exactly what goes wrong next.
 
 ### 7.4 The zero-count problem — why smoothing exists
 
-Take a perfectly ordinary test sentence containing a word pair that never appeared in training. MLE assigns that bigram probability **0**, so the whole sentence gets probability 0 — and perplexity, which involves $\log P$, becomes **infinite**. One unseen pair destroys the entire evaluation. And unseen pairs are not rare: language is heavy-tailed (Zipf), so _most_ possible bigrams never occur in any finite corpus, including a huge number of perfectly good ones.
+Score a brand-new test sentence with our trained model: **"the dog ran."** Reasonable English — dogs run. Peel and multiply:
 
-**Smoothing** redistributes a little probability mass from seen events to unseen ones:
+$$P = \underbrace{P(\text{the} \mid \texttt{<s>})}_{= 1} \cdot \underbrace{P(\text{dog} \mid \text{the})}_{= 1/3} \cdot \underbrace{P(\text{ran} \mid \text{dog})}_{= \mathbf{0/1 = 0}} \cdot \; \cdots \; = 0$$
 
-- **Laplace (add-one):** pretend every bigram occurred once more than it did:
+"dog ran" never occurred in training, so the model declares the whole sentence **impossible** — probability exactly 0. Not unlikely: *impossible*. And it poisons everything it touches: the sentence's log-probability is $\log 0 = -\infty$, so cross-entropy and perplexity over the *entire test set* become infinite. One missing pair, total evaluation wipeout — this is the trap we flagged in the §4.3 scoring table, sprung.
+
+You might hope unseen pairs are rare. The opposite: word frequencies are heavy-tailed (Zipf's law — a few words are very common, most words are very rare), so **the majority of all possible word pairs never occur in any finite corpus**, including countless perfectly grammatical ones. Every real test set will hit them. The model's true crime is *arrogance*: 0 means "I have seen everything, and this cannot happen," when the honest claim is "I haven't seen this yet."
+
+**Smoothing** is enforced humility: shave a little probability off the pairs you did see, and spread it over the ones you didn't. The classical menu, simplest first:
+
+- **Laplace (add-one)** — what we'll implement: pretend every possible pair occurred once more than it did. With vocabulary size $V$ (ours: the, cat, dog, sat, ran, `</s>` → $V = 6$):
+
   $$P_{\text{Lap}}(w_i \mid w_{i-1}) = \frac{C(w_{i-1} w_i) + 1}{C(w_{i-1}) + V}$$
-  where $V$ is vocabulary size. Simple, and what we'll implement — but crude: with $V$ in the tens of thousands it steals far too much mass from seen events. (Add-k with $k < 1$ softens this.)
-- **Interpolation:** mix trigram, bigram, and unigram estimates with learned weights.
-- **Backoff:** use the trigram if seen, else fall back to the bigram, else the unigram.
-- **Kneser-Ney:** the classical state of the art — subtracts a fixed discount from every count and bases fallback on how many _distinct contexts_ a word appears in (why "Francisco" is common yet a bad generic prediction). We'll meet it properly when we need it.
 
-Deep insight worth stating in the article: **smoothing is generalization.** A language model's real job is assigning reasonable probability to sequences it has _never seen_. N-grams generalize by crude count adjustment; neural models will do it by learning that "cat" and "dog" are similar. Same problem, better machinery.
+  Now $P(\text{ran} \mid \text{dog}) = \frac{0+1}{1+6} = \tfrac{1}{7}$ — small, but not zero. "The dog ran" is unlikely, not impossible. Fixed. But watch the cost: $P(\text{sat} \mid \text{dog})$ fell from $1$ to $\frac{1+1}{1+6} = \tfrac{2}{7}$. To fund the unseen, add-one taxed a *seen* event from certainty down to 29% — and with a realistic vocabulary ($V$ in the tens of thousands) the tax gets far worse. (Add-$k$ with $k < 1$ is the gentler version.)
+- **Interpolation:** don't trust one estimate — blend them. Mix trigram, bigram, and unigram probabilities with weights: even if "dog ran" was never seen, "ran" on its own was.
+- **Backoff:** use the longest context you've actually seen: trigram if available, else drop to bigram, else to unigram. In plain terms: *if you've never seen the pair, judge the word on its own reputation.*
+- **Kneser-Ney** — the classical state of the art: subtract a fixed discount from every count, and when backing off, rank words not by raw frequency but by **how many different contexts** they follow. The classic illustration: "Francisco" is a frequent word, but nearly every occurrence follows "San" — so in a *fresh* context it's a terrible guess, and Kneser-Ney knows it. We'll meet it properly later in the roadmap.
 
-### 7.5 Entropy → cross-entropy → perplexity
+The insight worth a pull-quote in your article: **smoothing is generalization.** A language model's real job is assigning sane probabilities to text it has *never seen*. N-grams generalize by crudely adjusting counts; neural models will do it by learning that "cat" and "dog" are similar, so evidence about one transfers to the other. Same problem — better machinery arrives on Day 4.
 
-How good is a language model? Measure how surprised it is by held-out text it has never seen. The **cross-entropy** of the model on a test sequence of $N$ words:
+### 7.5 Perplexity: the scorecard
+
+The model trains (7.3), survives unseen pairs (7.4) — now grade it. The grade we already own: **cross-entropy (§4.3)** — the model's average surprise, in bits per word, on held-out text it never trained on:
 
 $$H = -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{context}_i) \quad \text{(bits per word)}$$
 
-**Perplexity** exponentiates it back to a human-readable scale:
+(Held-out is non-negotiable: scoring the model on its own training text is letting the student grade their own exam — our toy model above would look perfect on "the cat sat" and fall over on "the dog ran".)
+
+**Perplexity** is that same number, made human-readable. Bits are logarithms; exponentiate to turn them back into a *count of options*:
 
 $$\text{PPL} = 2^{H} = P_{\text{model}}(w_1 \cdots w_N)^{-1/N}$$
 
-**Plain-words meaning:** perplexity is the model's **effective branching factor** — "on average, the model is as confused as if it were choosing uniformly among PPL equally likely next words."
+**Plain-words meaning:** perplexity is the model's **effective branching factor** — "at each word, the model is as confused as if it were choosing uniformly among PPL equally likely options." In the guessing-game language of §4.2: $H$ is questions per word, and $\text{PPL} = 2^H$ is the size of the candidate pool those questions have to whittle down.
 
-- PPL 100 → as uncertain as a fair 100-sided die at every word.
-- PPL 50 → the model has narrowed each choice to ~50 effective options. **Lower is better.**
-- Sanity checks: a uniform model over a $V$-word vocabulary has PPL exactly $V$; a perfect oracle has PPL 1.
+Worked, from numbers we already have: the §4.3 scoring table gave a cross-entropy of 2 bits/word on `<s> the cat sat </s>` — so $\text{PPL} = 2^2 = 4$: that model navigates the sentence as if picking among 4 options per word. Sanity checks: a model that knows nothing (uniform over $V$ words) has $\text{PPL} = V$ exactly; a perfect oracle has $\text{PPL} = 1$; **lower is better**.
 
-Reference points: trigram models on Penn Treebank sat around PPL ~140 in the 1990s; modern LLMs score in the single digits to low tens (numbers are only comparable on the same corpus + tokenization). This is the metric on which sixty years of progress is plotted — and we'll compute it ourselves next.
+Reference points for calibration: 1990s trigram models on Penn Treebank sat around PPL ~140; modern LLMs reach the single digits to low tens (only comparable on the same corpus and tokenization). Sixty years of progress — Shannon's staircase (§4.2), the n-gram era, the entire neural age — plots as one descending curve of this single number. Next, we compute our own point on it.
 
 ## 8. Limitations of n-gram models → the road ahead
 
