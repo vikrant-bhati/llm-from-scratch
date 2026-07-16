@@ -114,21 +114,42 @@ Two things to notice, because they run through this whole roadmap. First, each s
 
 One caution: entropy is a property of **language itself** — the irreducible unpredictability no model can beat. To score a *model*, we need its sibling.
 
-### 4.3 Cross-entropy: the average surprise of your model
+### 4.3 Cross-entropy: the guessing game with the wrong beliefs
 
-**Cross-entropy** uses the same recipe as entropy but crosses two distributions: events happen according to the true distribution $p$, yet surprise is charged using **your model's** probabilities $q$:
+In §4.2's guessing game there was a hidden assumption: you knew the true probabilities, so you always asked the *smartest possible questions* — "sun?" first, because sun is genuinely the most common. Entropy is the average number of questions **when your beliefs are perfect**.
 
-$$H(p, q) = \sum_x p(x) \log_2 \frac{1}{q(x)} = -\sum_x p(x)\log_2 q(x)$$
+But a model's beliefs are never perfect. **Cross-entropy is the average number of questions you need when reality deals the outcomes, but your question strategy is built from *your model's* beliefs.** Wrong beliefs → you ask about the wrong things first → you waste questions. That's the entire concept.
 
-Same shape as entropy — only the probability inside the log changed hands. In practice we never know the true $p$ of English, so real text stands in for it: average the model's surprise over a held-out test text of $N$ words,
+**Same weather, wrong model.** Reality (from §4.2): sun $\tfrac{1}{2}$, rain $\tfrac{1}{4}$, snow $\tfrac{1}{8}$, hail $\tfrac{1}{8}$ — entropy 1.75 questions/day. Now suppose your model believes the *exact reverse*: hail $\tfrac{1}{2}$, snow $\tfrac{1}{4}$, rain $\tfrac{1}{8}$, sun $\tfrac{1}{8}$. Trusting it, you ask "hail?" first, then "snow?", then "rain?":
+
+| Day's actual weather | How often (truth) | Your questions | Cost |
+| -------------------- | ----------------- | -------------- | ---- |
+| hail | $\tfrac{1}{8}$ | "hail?" ✓ | 1 |
+| snow | $\tfrac{1}{8}$ | "hail?" ✗ "snow?" ✓ | 2 |
+| rain | $\tfrac{1}{4}$ | "hail?" ✗ "snow?" ✗ "rain?" ✓ | 3 |
+| sun | $\tfrac{1}{2}$ | "hail?" ✗ "snow?" ✗ "rain?" ✗ → sun | 3 |
+
+Your cheap 1-question shortcut is reserved for hail — which almost never happens — while sun, *half of all days*, costs you 3 questions every time. Average:
+
+$$H(p, q) = \tfrac{1}{2}(3) + \tfrac{1}{4}(3) + \tfrac{1}{8}(2) + \tfrac{1}{8}(1) = 2.625 \text{ questions/day}$$
+
+Reality is only 1.75 questions unpredictable; you're paying 2.625. The extra **0.875 questions/day is pure cost of believing the wrong thing.** Note what each side contributes: **reality decides how often each row happens; your model decides how expensive each row is.**
+
+That sentence *is* the formula. Reality's probability $p(x)$ weights each outcome; your model's belief $q(x)$ sets its cost, $\log_2 \frac{1}{q(x)}$ (believe strongly → cheap when right; doubt → expensive):
+
+$$H(p, q) = \sum_x p(x) \log_2 \frac{1}{q(x)}$$
+
+Compare entropy, $\sum_x p(x)\log_2\frac{1}{p(x)}$ — identical, except there the questioner's beliefs *are* the truth. The "cross" is that the probability inside the log changed hands: reality picks, your model pays.
+
+For language models one adjustment: we never know the true $p$ of English, so real text stands in for it — let reality deal actual words from a held-out test set and average your model's cost over $N$ of them:
 
 $$H \approx -\frac{1}{N}\sum_{i=1}^{N} \log_2 P_{\text{model}}(w_i \mid \text{context}_i) \quad \text{(bits per word)}$$
 
-A tiny example. True weather: rain 50%, sun 50% — entropy $= 1$ bit. A model that also believes 50/50 has cross-entropy $= 1$ bit. A model that believes rain 25%, sun 75% has cross-entropy $= 0.5\log_2\frac{1}{0.25} + 0.5\log_2\frac{1}{0.75} \approx 1.21$ bits — it pays extra surprise on the rainy days it kept betting against. In general:
+In general:
 
-$$\text{cross-entropy} = \underbrace{\text{entropy}}_{\text{how unpredictable reality is}} + \underbrace{\text{extra}}_{\text{how wrong the model is}}$$
+$$\text{cross-entropy} = \underbrace{\text{entropy}}_{\text{how unpredictable reality is}} + \underbrace{\text{extra}}_{\text{how wrong your beliefs are}}$$
 
-so cross-entropy $\geq$ entropy, with equality only for a perfect model. Training any language model — bigram counter or GPT — is nothing but shrinking that second term; the first is a fixed property of language. One-line version: **entropy is how surprising the world is; cross-entropy is how surprising the world is *to your model*.**
+so cross-entropy $\geq$ entropy, with equality only for a perfect model. Training any language model — bigram counter or GPT — is nothing but shrinking that second term; the first is a fixed property of language. One-line version: **entropy is how many questions the world costs; cross-entropy is how many questions the world costs *you, with your beliefs* — and the gap is exactly how wrong your beliefs are.**
 
 **The same computation on language** — this is exactly what we'll code in §7. A trained bigram model reads the test sentence `<s> the cat sat </s>`. At each step reality reveals the true next word, and we look up the probability the model *had assigned* to it:
 
