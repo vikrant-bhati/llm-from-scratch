@@ -5,7 +5,8 @@
       "Bash(echo \"exit: $?\")",
       "Bash(python3 -c ' *)",
       "Bash(python3 *)",
-      "Skill(dataviz)"
+      "Skill(dataviz)",
+      "Bash(jupyter nbconvert *)"
     ]
   }
 }
