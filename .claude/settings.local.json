@@ -6,7 +6,9 @@
       "Bash(python3 -c ' *)",
       "Bash(python3 *)",
       "Skill(dataviz)",
-      "Bash(jupyter nbconvert *)"
+      "Bash(jupyter nbconvert *)",
+      "WebSearch",
+      "WebFetch(domain:huggingface.co)"
     ]
   }
 }
