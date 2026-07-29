@@ -8,7 +8,9 @@
       "Skill(dataviz)",
       "Bash(jupyter nbconvert *)",
       "WebSearch",
-      "WebFetch(domain:huggingface.co)"
+      "WebFetch(domain:huggingface.co)",
+      "Read(//Users/vikrant/Documents/VT/htmls/**)",
+      "Read(//Users/vikrant/Documents/VT/**)"
     ]
   }
 }

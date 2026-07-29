@@ -2,6 +2,10 @@
 
 *Part 3 of "LLM from Scratch." In Part 1, Shannon showed us that language modeling is a guessing game. In Part 2, we built an n-gram model and watched zero counts break it. Today we answer the question we quietly avoided: what exactly is a "word" to a language model?*
 
+![You see the word STRAWBERRY as ten letters and can count three r's instantly. The model may see it as two tokens, "straw" and "berry", and has no direct view of the letters.](images/day2-hero.png)
+
+*You count the r's letter by letter. The model may never see the letters at all — just the tokens `straw` and `berry`.*
+
 Ever wondered why an LLM can explain backpropagation, write a decent SQL query, and then somehow mess up a question like:
 
 ```text
