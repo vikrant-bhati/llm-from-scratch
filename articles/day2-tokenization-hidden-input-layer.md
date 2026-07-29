@@ -28,6 +28,18 @@ And yes, it is one reason letter-counting and arithmetic can look strangely brit
 
 So today is about that input layer. How do we turn text into numbers without losing the long tail of language?
 
+I also made this article reproducible. The full practice notebook is here:
+
+**Notebook:** [Day 2 tokenization practice](https://github.com/vikrant-bhati/llm-from-scratch/blob/main/notebooks/day2/tokenization_practice.ipynb)
+
+In the notebook, we implement whitespace tokenization, regex tokenization, a word-level tokenizer with `<unk>`, and a BPE-like tokenizer from scratch. Then we compare token counts and OOV behavior on Tiny Shakespeare / WikiText-2 style data.
+
+The only extra libraries are Hugging Face `datasets` and `tokenizers`:
+
+```python
+%pip install datasets tokenizers
+```
+
 ## The Small Lie From Day 1
 
 In the first two articles, I kept saying that a language model predicts the next word.
@@ -112,6 +124,34 @@ Even if we somehow solved all the splitting rules, we would still hit the deeper
 
 Should the tokens be words, or should they be characters?
 
+Here is the first tiny experiment from the notebook. It shows why whitespace is too naive, and why regex helps only a little:
+
+```python
+import re
+
+def whitespace_tokenize(text):
+    return text.split()
+
+TOKEN_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?|\d+|[^\w\s]")
+
+def regex_tokenize(text):
+    return TOKEN_RE.findall(text)
+
+sample = "I don't know New York, but strawberry has letters and 12345 has digits."
+
+print("whitespace:", whitespace_tokenize(sample))
+print("regex:     ", regex_tokenize(sample))
+```
+
+The important thing is not the code. It is the difference in what the model would receive:
+
+```text
+whitespace: ["I", "don't", "know", "New", "York,", ..., "digits."]
+regex:      ["I", "don't", "know", "New", "York", ",", ..., "digits", "."]
+```
+
+Regex separated punctuation. Good. But it did not solve rare words. It just made cleaner word-like tokens.
+
 ## If Tokens Are Words, Rare Words Break Everything
 
 Word tokens are tempting because they are compact.
@@ -154,6 +194,36 @@ That is worse than "I do not know this word." It is "I cannot even tell which un
 And language is full of rare words. Names are rare. New slang is rare. Misspellings are rare. Technical terms are rare. The long tail is not an edge case; it is a normal part of text.
 
 Word-level tokenization gives us short sequences, but it makes the model blind to anything outside its fixed dictionary.
+
+In code, that blindness looks like this:
+
+```python
+from collections import Counter
+
+UNK = "<unk>"
+
+def build_word_vocab(tokenized_texts, max_size):
+    counts = Counter()
+    for tokens in tokenized_texts:
+        counts.update(tokens)
+    return set(token for token, _ in counts.most_common(max_size))
+
+def encode_word_level(tokens, vocab):
+    return [token if token in vocab else UNK for token in tokens]
+
+def oov_rate(tokens, vocab):
+    return sum(token not in vocab for token in tokens) / len(tokens)
+```
+
+Train a small vocabulary on one chunk of text, then test on the next chunk. In my notebook run, the word-level tokenizer hit this on the Shakespeare fallback sample:
+
+```text
+word-level  13 tokens | OOV 53.8%
+sample: ['<unk>', '<unk>', '<unk>', '<unk>', '<unk>', '<unk>', '<unk>',
+         'all', ':', 'resolved', '.', 'resolved', '.']
+```
+
+That is the OOV problem in plain sight. The model did not merely split rare words badly. It lost them.
 
 So maybe we should go all the way down.
 
@@ -305,6 +375,59 @@ That list is the trained tokenizer.
 
 No gradient descent. No backpropagation. No GPU. Just counting pairs and merging the most common one.
 
+The code version is short enough to write by hand:
+
+```python
+def count_adjacent_pairs(symbol_corpus):
+    pairs = Counter()
+    for symbols, freq in symbol_corpus.items():
+        for left, right in zip(symbols, symbols[1:]):
+            pairs[(left, right)] += freq
+    return pairs
+
+def merge_pair_in_symbols(symbols, pair):
+    merged = []
+    i = 0
+    while i < len(symbols):
+        if i < len(symbols) - 1 and (symbols[i], symbols[i + 1]) == pair:
+            merged.append(symbols[i] + symbols[i + 1])
+            i += 2
+        else:
+            merged.append(symbols[i])
+            i += 1
+    return tuple(merged)
+
+def merge_pair(symbol_corpus, pair):
+    return {
+        merge_pair_in_symbols(symbols, pair): freq
+        for symbols, freq in symbol_corpus.items()
+    }
+```
+
+Then training is just a loop:
+
+```python
+def train_bpe(word_counts, num_merges):
+    symbol_corpus = {tuple(word): count for word, count in word_counts.items()}
+    merges = []
+
+    for _ in range(num_merges):
+        pair_counts = count_adjacent_pairs(symbol_corpus)
+        best_pair, _ = pair_counts.most_common(1)[0]
+        merges.append(best_pair)
+        symbol_corpus = merge_pair(symbol_corpus, best_pair)
+
+    return merges
+```
+
+When I run this on the `hug` corpus, the checks pass:
+
+```text
+merges: [('u', 'g'), ('u', 'n'), ('h', 'ug')]
+bug -> ['b', 'ug']
+hugs -> ['hug', 's']
+```
+
 The nice part is what happens next.
 
 ## A Word Can Be New Without Being Unknown
@@ -370,6 +493,27 @@ Every digital string is made of bytes, and there are only 256 possible byte valu
 That is byte-level BPE. It is the "nothing is truly OOV" version.
 
 The sequence may get longer for unfamiliar text, but it will not become impossible.
+
+The notebook also trains a tiny Hugging Face byte-level BPE tokenizer:
+
+```python
+from tokenizers import ByteLevelBPETokenizer
+
+hf_bpe = ByteLevelBPETokenizer()
+hf_bpe.train_from_iterator(
+    TRAIN_TEXTS,
+    vocab_size=300,
+    min_frequency=1,
+    special_tokens=["<pad>", "<unk>"],
+)
+
+sample = "strawberry 12345 vikrantGPT2026 🙂 你好"
+enc = hf_bpe.encode(sample)
+
+print(enc.tokens)
+```
+
+That is not a production tokenizer trained on billions of words. It is a small practice tokenizer. But it lets you see the important behavior: byte-level BPE can still produce tokens for emoji, Chinese text, numbers, and made-up strings.
 
 ## BPE, WordPiece, Unigram, SentencePiece
 
@@ -450,6 +594,22 @@ fertility = average tokens per word
 Low fertility means compact tokenization. High fertility means the tokenizer is chopping heavily.
 
 A good tokenizer is not just "the one with the biggest vocabulary." It is the one that keeps sequences reasonably short while still handling rare and messy text gracefully.
+
+Here is the final comparison from the notebook on a WikiText-2 sample:
+
+```text
+whitespace         1882 tokens
+regex              1992 tokens
+word-level         1992 tokens | OOV 37.2%
+your BPE-like      4714 tokens
+HF byte BPE        4227 tokens | OOV 0.0%
+```
+
+This table is worth reading slowly.
+
+The word-level tokenizer is compact, but 37.2% of the test tokens became `<unk>`. That is not usable. My teaching BPE tokenizer avoided `<unk>`, but it split aggressively, so the sequence became much longer. Hugging Face byte-level BPE also avoided OOV, and it was a little more compact than my simple version.
+
+That is the actual engineering trade-off: fewer tokens, lower OOV, cleaner representation. You rarely get all three for free.
 
 ## The Perplexity Trap
 
@@ -538,6 +698,24 @@ Today we learned that the unit itself is a design choice.
 
 And once that choice is made, the whole model has to live with it.
 
+## Try It Yourself
+
+The full notebook for this article is here:
+
+[https://github.com/vikrant-bhati/llm-from-scratch/blob/main/notebooks/day2/tokenization_practice.ipynb](https://github.com/vikrant-bhati/llm-from-scratch/blob/main/notebooks/day2/tokenization_practice.ipynb)
+
+It includes:
+
+1. whitespace tokenization
+2. regex tokenization
+3. word-level vocabulary and `<unk>` behavior
+4. BPE-like tokenization from scratch
+5. Hugging Face byte-level BPE
+6. token-count and OOV comparisons on practice text and WikiText-2
+7. optional dataset loading for Tiny Shakespeare and WikiText-2, with fallback text if a download is unavailable
+
+If you run only one thing, run the final comparison table. It makes the whole article concrete.
+
 ---
 
 **Papers behind this article**
@@ -548,4 +726,4 @@ And once that choice is made, the whole model has to live with it.
 4. Kudo and Richardson (2018), *SentencePiece: A Simple and Language Independent Subword Tokenizer and Detokenizer for Neural Text Processing* - language-independent tokenization.
 5. Radford et al. (2019), *Language Models are Unsupervised Multitask Learners* - GPT-2 and byte-level BPE.
 
-*Next: we implement BPE from scratch, test it on the tiny `hug` corpus, then compare token counts and OOV behavior on real text.*
+*Next: embeddings. Tokenization turns text into token IDs; embeddings turn those IDs into vectors where meaning can start to live.*
