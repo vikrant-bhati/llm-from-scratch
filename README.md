@@ -8,12 +8,16 @@ This repository documents my journey to deeply understand modern LLMs by studyin
 
 - 📚 Research paper summaries and reading notes
 - 🧠 Intuitive explanations of ML and NLP concepts
-- ✍️ In-depth articles (also published on Medium)
+- ✍️ Long-form explanations published on [Medium](https://medium.com/@vikrant_bhati)
 - 💻 PyTorch implementations from scratch
 - 🔬 Reproducible experiments
 - 🤖 Real-world LLM applications using Hugging Face, LangChain, LangGraph, LlamaIndex, MCP, and vector databases
 - 📊 Visualizations and architecture diagrams
 - 🚀 End-to-end projects, from language modeling to agentic AI
+
+## Read on Medium
+
+My long-form articles are published on [my Medium profile](https://medium.com/@vikrant_bhati).
 
 ## Roadmap
 

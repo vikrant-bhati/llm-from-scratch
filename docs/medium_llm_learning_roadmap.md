@@ -7,7 +7,7 @@ Goal: learn deeply, teach other students clearly, and build a public portfolio w
 ```text
 llm-learning-roadmap/
 ├── README.md
-├── articles/
+├── docs/
 ├── notebooks/
 ├── projects/
 ├── figures/
@@ -1223,4 +1223,3 @@ In this roadmap, **MCP means Model Context Protocol**, not just a vague 'skills'
 - **Tools:** actions the model can request, such as search, SQL query, file read/write, calendar lookup, or code execution.
 - **Prompts:** reusable prompt templates or workflows exposed by the server.
 - **Security:** permissioning, command whitelisting, sandboxing, prompt injection defense, audit logs, and least-privilege design.
-
