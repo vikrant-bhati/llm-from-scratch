@@ -15,9 +15,16 @@ This repository documents my journey to deeply understand modern LLMs by studyin
 - 📊 Visualizations and architecture diagrams
 - 🚀 End-to-end projects, from language modeling to agentic AI
 
-## Read on Medium
+## Articles and notebooks
 
-My long-form articles are published on [my Medium profile](https://medium.com/@vikrant_bhati).
+### 1. Claude Shannon Measured the English Language by Playing Hangman — and GPT Is Still Playing the Same Game
+
+Learn how surprise, entropy, and cross-entropy connect Shannon's early information theory to the way modern language models learn.<br>
+Build an n-gram model that scores and generates text and measures perplexity on the Brown Corpus.
+
+[Read the article on Medium](https://medium.com/@vikrant_bhati/claude-shannon-measured-the-english-language-by-playing-hangman-1ce201cfe869) · [Open the companion notebook](notebooks/day1/ngram.ipynb)
+
+More writing is available on [my Medium profile](https://medium.com/@vikrant_bhati).
 
 ## Roadmap
 
