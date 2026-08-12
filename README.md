@@ -39,6 +39,22 @@ Before an LLM reads a sentence, a tokenizer has already chopped it into pieces. 
 
 **Notebook:** [Practice tokenization and build BPE](notebooks/day2/tokenization_practice.ipynb)
 
+### Day 3 — Classical text classification
+
+#### 4. A Computer Filed 405 Abstracts in 1961 — and Accidentally Invented Your Spam Filter
+
+In 1961 a computer sorted 405 abstracts into 32 categories by doing nothing but counting words. I follow that trick to TF-IDF and naive Bayes, and show that the clever half of TF-IDF is really Claude Shannon's measure of surprise in disguise.
+
+*(Publishing soon — link to follow.)*
+
+#### 5. My Sentiment Classifier Is 88% Accurate and Completely Unable to Read
+
+I built bag-of-words, TF-IDF, naive Bayes and logistic regression from scratch and ran them on 50,000 IMDb reviews. The best model reaches 88%, one model hits 100% accuracy on its training data (the worst news in the experiment), and none of them can tell "good, not bad" from "bad, not good".
+
+*(Publishing soon — link to follow.)*
+
+**Notebook:** [Build TF-IDF, naive Bayes and logistic regression](notebooks/day3/text_classification.ipynb)
+
 You can find the rest of my writing on [Medium](https://medium.com/@vikrant_bhati).
 
 ## Roadmap
