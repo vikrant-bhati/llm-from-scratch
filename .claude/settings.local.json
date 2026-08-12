@@ -10,7 +10,9 @@
       "WebSearch",
       "WebFetch(domain:huggingface.co)",
       "Read(//Users/vikrant/Documents/VT/htmls/**)",
-      "Read(//Users/vikrant/Documents/VT/**)"
+      "Read(//Users/vikrant/Documents/VT/**)",
+      "Bash(git rm *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }

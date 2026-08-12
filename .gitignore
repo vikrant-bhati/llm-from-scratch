@@ -1,0 +1,24 @@
+# Article drafts — published on Medium, kept local so the prose isn't copied
+articles/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data and model artifacts
+data/
+*.pkl
+*.joblib
+
+# Editors
+.vscode/
+.idea/
